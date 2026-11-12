@@ -125,12 +125,19 @@ local weaponHandle = nil
 local rightGrip = nil
 local leftGrip = nil
 
-local aimTargetAttachment = nil :: Attachment?
 local rightAimIK = nil :: IKControl?
 local leftGripIK = nil :: IKControl?
+local rightElbowPole = nil :: Attachment?
+local leftElbowPole = nil :: Attachment?
 local ikSetupAt = 0
 local warnedMissingLeftGrip = false
 local teardownIK = nil
+
+local weaponHandleOriginalParent = nil
+local weaponHandleOriginalCFrame = nil :: CFrame?
+local rightGripLocal = nil :: CFrame?
+local muzzleLocal = nil :: CFrame?
+local torsoToRightGrip = nil :: CFrame?
 
 local cframe = CFrame.new
 local angles = CFrame.Angles
@@ -398,10 +405,31 @@ teardownIK = function()
 		leftGripIK = nil
 	end
 
-	if aimTargetAttachment then
-		aimTargetAttachment:Destroy()
-		aimTargetAttachment = nil
+	if rightElbowPole then
+		rightElbowPole:Destroy()
+		rightElbowPole = nil
 	end
+
+	if leftElbowPole then
+		leftElbowPole:Destroy()
+		leftElbowPole = nil
+	end
+
+	if weaponHandle
+		and weaponHandleOriginalParent
+		and weaponHandleOriginalParent.Parent
+		and weaponHandleOriginalCFrame
+		and weaponHandle.Parent
+	then
+		weaponHandle.Parent = weaponHandleOriginalParent
+		weaponHandle.CFrame = weaponHandleOriginalCFrame
+	end
+
+	weaponHandleOriginalParent = nil
+	weaponHandleOriginalCFrame = nil
+	rightGripLocal = nil
+	muzzleLocal = nil
+	torsoToRightGrip = nil
 end
 
 local function setupIK(): boolean
@@ -414,60 +442,154 @@ local function setupIK(): boolean
 		or not root
 		or not RightShoulder
 		or not RightHand
+		or not LeftShoulder
+		or not LeftHand
+		or not Torso
+		or not weaponHandle
+		or not weaponHandle:IsA("Bone")
 		or not muzzle
 		or not muzzle.Parent
 	then
 		return false
 	end
 
-	local rightHandCf = getWorldCFrame(RightHand)
-	local muzzleCf = getWorldCFrame(muzzle)
-
-	if not rightHandCf or not muzzleCf then
+	if not rightGrip
+		or not rightGrip:IsA("Attachment")
+		or not leftGrip
+		or not leftGrip:IsA("Attachment")
+	then
+		if not warnedMissingLeftGrip then
+			warnedMissingLeftGrip = true
+			warn("AimRangeWeapon: RightGrip and LeftGrip must both be descendants of the weapon handle")
+		end
 		return false
 	end
 
-	aimTargetAttachment = Instance.new("Attachment")
-	aimTargetAttachment.Name = "ThirdPersonAimTarget"
-	aimTargetAttachment.Parent = root
+	local handleCf = getWorldCFrame(weaponHandle)
+	local rightHandCf = getWorldCFrame(RightHand)
+	local leftHandCf = getWorldCFrame(LeftHand)
+	local rightGripCf = getWorldCFrame(rightGrip)
+	local leftGripCf = getWorldCFrame(leftGrip)
+	local muzzleCf = getWorldCFrame(muzzle)
+	local torsoCf = getWorldCFrame(Torso)
+
+	if not handleCf
+		or not rightHandCf
+		or not leftHandCf
+		or not rightGripCf
+		or not leftGripCf
+		or not muzzleCf
+		or not torsoCf
+	then
+		return false
+	end
+
+	weaponHandleOriginalParent = weaponHandle.Parent
+	weaponHandleOriginalCFrame = weaponHandle.CFrame
+	rightGripLocal = handleCf:ToObjectSpace(rightGripCf)
+	muzzleLocal = handleCf:ToObjectSpace(muzzleCf)
+	torsoToRightGrip = torsoCf:ToObjectSpace(rightGripCf)
+
+	local rightGripToHand = rightGripCf:ToObjectSpace(rightHandCf)
+	local leftGripToHand = leftGripCf:ToObjectSpace(leftHandCf)
+
+	-- Detach the weapon pose from Hand_R while preserving its current rendered
+	-- world transform. From here the gun is aimed directly and both hands follow.
+	weaponHandle.Parent = root
+	weaponHandle.CFrame =
+		root.CFrame:ToObjectSpace(handleCf)
+		* weaponHandle.Transform:Inverse()
+
+	rightElbowPole = Instance.new("Attachment")
+	rightElbowPole.Name = "ThirdPersonRightElbowPole"
+	rightElbowPole.CFrame = CFrame.new(2, 0.5, -0.75)
+	rightElbowPole.Parent = root
+
+	leftElbowPole = Instance.new("Attachment")
+	leftElbowPole.Name = "ThirdPersonLeftElbowPole"
+	leftElbowPole.CFrame = CFrame.new(-2, 0.5, -0.75)
+	leftElbowPole.Parent = root
 
 	rightAimIK = Instance.new("IKControl")
-	rightAimIK.Name = "ThirdPersonRightArmAim"
-	rightAimIK.Type = Enum.IKControlType.LookAt
+	rightAimIK.Name = "ThirdPersonRightHandGrip"
+	rightAimIK.Type = Enum.IKControlType.Transform
 	rightAimIK.ChainRoot = RightShoulder
 	rightAimIK.EndEffector = RightHand
-	rightAimIK.EndEffectorOffset = rightHandCf:ToObjectSpace(muzzleCf)
-	rightAimIK.Target = aimTargetAttachment
+	rightAimIK.Target = rightGrip
+	rightAimIK.Offset = rightGripToHand
+	rightAimIK.Pole = rightElbowPole
 	rightAimIK.Weight = 1
-	rightAimIK.SmoothTime = 0.035
+	rightAimIK.SmoothTime = 0.025
 	rightAimIK.Priority = 1
 	rightAimIK.Parent = Humanoid
 
-	if LeftShoulder and LeftHand and leftGrip and leftGrip:IsA("Attachment") then
-		local leftHandCf = getWorldCFrame(LeftHand)
-		local leftGripCf = getWorldCFrame(leftGrip)
-
-		if leftHandCf and leftGripCf then
-			leftGripIK = Instance.new("IKControl")
-			leftGripIK.Name = "ThirdPersonLeftHandGrip"
-			leftGripIK.Type = Enum.IKControlType.Transform
-			leftGripIK.ChainRoot = LeftShoulder
-			leftGripIK.EndEffector = LeftHand
-			leftGripIK.Target = leftGrip
-			-- Preserve the authored hand-to-grip relationship, then let IK keep
-			-- that full position and orientation rigid as the weapon rotates.
-			leftGripIK.Offset = leftGripCf:ToObjectSpace(leftHandCf)
-			leftGripIK.Weight = 1
-			leftGripIK.SmoothTime = 0.05
-			leftGripIK.Priority = 2
-			leftGripIK.Parent = Humanoid
-		end
-	elseif not warnedMissingLeftGrip then
-		warnedMissingLeftGrip = true
-		warn("AimRangeWeapon: add a LeftGrip Attachment under the weapon handle for two-handed IK")
-	end
+	leftGripIK = Instance.new("IKControl")
+	leftGripIK.Name = "ThirdPersonLeftHandGrip"
+	leftGripIK.Type = Enum.IKControlType.Transform
+	leftGripIK.ChainRoot = LeftShoulder
+	leftGripIK.EndEffector = LeftHand
+	leftGripIK.Target = leftGrip
+	leftGripIK.Offset = leftGripToHand
+	leftGripIK.Pole = leftElbowPole
+	leftGripIK.Weight = 1
+	leftGripIK.SmoothTime = 0.025
+	leftGripIK.Priority = 2
+	leftGripIK.Parent = Humanoid
 
 	return true
+end
+
+local function updateWeaponAim(targetPos: Vector3)
+	if not setupIK()
+		or not weaponHandle
+		or not weaponHandle.Parent
+		or not rightGripLocal
+		or not muzzleLocal
+		or not torsoToRightGrip
+		or not Torso
+	then
+		return
+	end
+
+	local torsoCf = getWorldCFrame(Torso)
+
+	if not torsoCf then
+		return
+	end
+
+	local desiredGripPosition = (torsoCf * torsoToRightGrip).Position
+
+	-- Two short passes account for the muzzle position changing as the weapon
+	-- rotates around RightGrip, keeping the rendered barrel on the shot line.
+	for _ = 1, 2 do
+		local currentMuzzleCf = getWorldCFrame(muzzle)
+		if not currentMuzzleCf then
+			return
+		end
+
+		local aimDirection = targetPos - currentMuzzleCf.Position
+		if aimDirection.Magnitude < 0.001 then
+			return
+		end
+
+		aimDirection = aimDirection.Unit
+		local up = torsoCf.UpVector
+
+		if math.abs(aimDirection:Dot(up)) > 0.98 then
+			up = root.CFrame.RightVector
+		end
+
+		local desiredMuzzleRotation = CFrame.lookAt(Vector3.zero, aimDirection, up).Rotation
+		local desiredHandleRotation = desiredMuzzleRotation * muzzleLocal.Rotation:Inverse()
+		local desiredHandlePosition =
+			desiredGripPosition
+			- desiredHandleRotation:VectorToWorldSpace(rightGripLocal.Position)
+		local desiredHandleCf = CFrame.new(desiredHandlePosition) * desiredHandleRotation
+
+		weaponHandle.CFrame =
+			root.CFrame:ToObjectSpace(desiredHandleCf)
+			* weaponHandle.Transform:Inverse()
+	end
 end
 
 ---------------------------------------------------------------------- 
@@ -634,14 +756,12 @@ RunService.RenderStepped:Connect(function()
 	end
 
 	------------------------------------------------------------------
-	-- 1) Native IK aims through the muzzle while preserving the hold
-	--    animation. Left-hand IK targets the weapon's fixed LeftGrip.
+	-- 1) Aim the weapon independently, then let both arm IK chains follow
+	--    the authored RightGrip and LeftGrip attachments.
 	------------------------------------------------------------------
 
 	if muzzle and muzzle.Parent then
-		if setupIK() and aimTargetAttachment then
-			aimTargetAttachment.CFrame = root.CFrame:ToObjectSpace(CFrame.new(Point))
-		end
+		updateWeaponAim(Point)
 	else
 		muzzle = findWeaponMuzzle(currentHeldWeapon)
 	end
