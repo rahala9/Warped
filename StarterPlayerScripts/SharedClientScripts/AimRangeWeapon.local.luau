@@ -113,21 +113,24 @@ local Waist = nil
 local RightShoulder = nil
 local LeftShoulder = nil
 local RightHand = nil
+local LeftHand = nil
 
 local NeckOriginC0 = nil
 local WaistOriginC0 = nil
 local TorsoOriginC0 = nil
 local RightOriginC0 = nil
 local LeftOriginC0 = nil
-local RightHandOriginC0 = nil
-local shoulderAimCorrection = CFrame.new()
 
 local weaponHandle = nil
-local weaponHandleOriginC0 = nil
+local rightGrip = nil
+local leftGrip = nil
 
--- Small visual alignment offsets in studs. These do not change the muzzle aim.
-local RIGHT_GRIP_HAND_OFFSET = 0.15
-local SUPPORT_ARM_LEFT_OFFSET = 0.15
+local aimTargetAttachment = nil :: Attachment?
+local rightAimIK = nil :: IKControl?
+local leftGripIK = nil :: IKControl?
+local ikSetupAt = 0
+local warnedMissingLeftGrip = false
+local teardownIK = nil
 
 local cframe = CFrame.new
 local angles = CFrame.Angles
@@ -168,9 +171,14 @@ local function resetAimState()
 	muzzleCF = nil
 	rangedWeaponEquipped = false
 	currentHeldWeapon = nil
-	shoulderAimCorrection = CFrame.new()
 	weaponHandle = nil
-	weaponHandleOriginC0 = nil
+	rightGrip = nil
+	leftGrip = nil
+	warnedMissingLeftGrip = false
+
+	if teardownIK then
+		teardownIK()
+	end
 
 	if debugBeamPart then
 		debugBeamPart.Transparency = 1
@@ -220,10 +228,17 @@ local function rebuildCharacterRefs(character)
 		RightHand = Character:FindFirstChild("Hand_R", true)
 	end
 
-	if RightHand then
-		RightHandOriginC0 = RightHand.CFrame
-	else
-		RightHandOriginC0 = nil
+	LeftHand = nil
+
+	if LeftShoulder then
+		local elbow = LeftShoulder:FindFirstChild("Elbow_L")
+		if elbow then
+			LeftHand = elbow:FindFirstChild("Hand_L")
+		end
+	end
+
+	if not LeftHand then
+		LeftHand = Character:FindFirstChild("Hand_L", true)
 	end
 
 	if Neck then
@@ -275,18 +290,13 @@ local function restoreAimPose()
 	if RightShoulder and RightOriginC0 then
 		RightShoulder.CFrame = RightOriginC0
 	end
-	shoulderAimCorrection = CFrame.new()
-
-	if weaponHandle and weaponHandleOriginC0 and weaponHandle.Parent then
-		weaponHandle.CFrame = weaponHandleOriginC0
-	end
-
-	if RightHand and RightHandOriginC0 then
-		RightHand.CFrame = RightHandOriginC0
-	end
 
 	if LeftShoulder and LeftOriginC0 then
 		LeftShoulder.CFrame = LeftOriginC0
+	end
+
+	if teardownIK then
+		teardownIK()
 	end
 end
 
@@ -299,11 +309,6 @@ local function captureAimPose()
 		TorsoOriginC0 = Torso.CFrame
 	end
 
-	if RightHand then
-		RightHandOriginC0 = RightHand.CFrame
-	end
-
-	shoulderAimCorrection = CFrame.new()
 end
 
 local function findWeaponMuzzle(toolName)
@@ -333,11 +338,8 @@ local function findWeaponMuzzle(toolName)
 	end
 
 	weaponHandle = handle
-	if handle:IsA("Attachment") then
-		weaponHandleOriginC0 = handle.CFrame
-	else
-		weaponHandleOriginC0 = nil
-	end
+	rightGrip = handle:FindFirstChild("RightGrip", true)
+	leftGrip = handle:FindFirstChild("LeftGrip", true)
 
 	local firePart = handle:FindFirstChild("Muzzle")
 
@@ -359,7 +361,22 @@ Player.CharacterAdded:Connect(function(character)
 end)
 
 local function getWorldCFrame(instance): CFrame?
+	if instance:IsA("Bone") then
+		return instance.TransformedWorldCFrame
+	end
+
 	if instance:IsA("Attachment") then
+		local parent = instance.Parent
+
+		if parent and parent:IsA("Bone") then
+			return parent.TransformedWorldCFrame * instance.CFrame
+		end
+
+		if parent and parent:IsA("Attachment") then
+			local parentCf = getWorldCFrame(parent)
+			return parentCf and (parentCf * instance.CFrame) or nil
+		end
+
 		return instance.WorldCFrame
 	end
 
@@ -370,155 +387,87 @@ local function getWorldCFrame(instance): CFrame?
 	return nil
 end
 
-local function getParentWorldCFrame(instance): CFrame?
-	local parent = instance.Parent
-
-	if not parent then
-		return nil
+teardownIK = function()
+	if rightAimIK then
+		rightAimIK:Destroy()
+		rightAimIK = nil
 	end
 
-	if parent:IsA("Bone") then
-		return parent.TransformedWorldCFrame
+	if leftGripIK then
+		leftGripIK:Destroy()
+		leftGripIK = nil
 	end
 
-	if parent:IsA("Attachment") then
-		return parent.WorldCFrame
+	if aimTargetAttachment then
+		aimTargetAttachment:Destroy()
+		aimTargetAttachment = nil
 	end
-
-	if parent:IsA("BasePart") then
-		return parent.CFrame
-	end
-
-	return nil
 end
 
-local function applyShoulderCorrection(targetPos: Vector3)
-	if not RightShoulder or not RightOriginC0 or not muzzle or not muzzle.Parent then
-		return
+local function setupIK(): boolean
+	if rightAimIK then
+		return true
 	end
 
-	local muzzleCf = getWorldCFrame(muzzle)
-	local parentWorldCf = getParentWorldCFrame(RightShoulder)
-
-	if not muzzleCf or not parentWorldCf then
-		return
-	end
-
-	local toTarget = targetPos - muzzleCf.Position
-
-	if toTarget.Magnitude < 0.001 then
-		return
-	end
-
-	local currentDirection = muzzleCf.LookVector.Unit
-	local desiredDirection = toTarget.Unit
-	local dot = clamp(currentDirection:Dot(desiredDirection), -1, 1)
-	local angle = math.acos(dot)
-
-	if angle < math.rad(0.1) then
-		RightShoulder.CFrame =
-			CFrame.new(RightOriginC0.Position)
-			* shoulderAimCorrection
-			* RightOriginC0.Rotation
-		return
-	end
-
-	local axis = currentDirection:Cross(desiredDirection)
-
-	if axis.Magnitude < 0.0001 then
-		return
-	end
-
-	-- The muzzle transform is finalized after this render step, so solving the
-	-- entire error at once creates a one-frame feedback loop. Accumulate only a
-	-- small part of the residual error and keep it between frames instead.
-	local maxShoulderCorrection = math.rad(25)
-	local maxCorrectionStep = math.rad(3)
-	local correctionGain = 0.25
-	local localAxis = parentWorldCf:VectorToObjectSpace(axis.Unit)
-	local correctionStep = math.min(angle * correctionGain, maxCorrectionStep)
-	local nextCorrection = CFrame.fromAxisAngle(localAxis, correctionStep) * shoulderAimCorrection
-	local correctionAxis, correctionAngle = nextCorrection:ToAxisAngle()
-
-	if correctionAngle > maxShoulderCorrection then
-		nextCorrection = CFrame.fromAxisAngle(correctionAxis, maxShoulderCorrection)
-	end
-
-	shoulderAimCorrection = nextCorrection
-
-	RightShoulder.CFrame =
-		CFrame.new(RightOriginC0.Position)
-		* shoulderAimCorrection
-		* RightOriginC0.Rotation
-end
-
-local function applySupportShoulderCorrection()
-	if not LeftShoulder or not LeftOriginC0 or not RightShoulder then
-		return
-	end
-
-	local rightParentWorldCf = getParentWorldCFrame(RightShoulder)
-	local leftParentWorldCf = getParentWorldCFrame(LeftShoulder)
-
-	if not rightParentWorldCf or not leftParentWorldCf then
-		return
-	end
-
-	-- Convert the weapon shoulder's accumulated correction into world space,
-	-- then into the support shoulder's parent space. This keeps the authored
-	-- two-hand pose moving as one unit without independently solving either hand.
-	local worldCorrection =
-		rightParentWorldCf.Rotation
-		* shoulderAimCorrection
-		* rightParentWorldCf.Rotation:Inverse()
-	local leftLocalCorrection =
-		leftParentWorldCf.Rotation:Inverse()
-		* worldCorrection
-		* leftParentWorldCf.Rotation
-	local supportOffset = leftParentWorldCf:VectorToObjectSpace(
-		-root.CFrame.RightVector * SUPPORT_ARM_LEFT_OFFSET
-	)
-
-	LeftShoulder.CFrame =
-		CFrame.new(LeftOriginC0.Position + supportOffset)
-		* leftLocalCorrection
-		* LeftOriginC0.Rotation
-end
-
-local function applyGripHandOffset()
-	if not RightHand
-		or not RightHandOriginC0
-		or not RightHand:IsA("Bone")
-		or not weaponHandle
-		or not weaponHandleOriginC0
-		or weaponHandle.Parent ~= RightHand
+	if os.clock() < ikSetupAt
+		or not Humanoid
+		or not root
+		or not RightShoulder
+		or not RightHand
+		or not muzzle
+		or not muzzle.Parent
 	then
-		return
+		return false
 	end
 
-	local handParentWorldCf = getParentWorldCFrame(RightHand)
-	if not handParentWorldCf then
-		return
+	local rightHandCf = getWorldCFrame(RightHand)
+	local muzzleCf = getWorldCFrame(muzzle)
+
+	if not rightHandCf or not muzzleCf then
+		return false
 	end
 
-	local handOffset = handParentWorldCf:VectorToObjectSpace(
-		root.CFrame.RightVector * RIGHT_GRIP_HAND_OFFSET
-	)
-	local adjustedHandC0 =
-		CFrame.new(RightHandOriginC0.Position + handOffset)
-		* RightHandOriginC0.Rotation
+	aimTargetAttachment = Instance.new("Attachment")
+	aimTargetAttachment.Name = "ThirdPersonAimTarget"
+	aimTargetAttachment.Parent = root
 
-	-- Move the visible hand to the player's right, then apply the exact inverse
-	-- to the gun handle. The hand clears the mesh while the gun and muzzle stay
-	-- on the already-correct firing line.
-	local originalHandPose = RightHandOriginC0 * RightHand.Transform
-	local adjustedHandPose = adjustedHandC0 * RightHand.Transform
+	rightAimIK = Instance.new("IKControl")
+	rightAimIK.Name = "ThirdPersonRightArmAim"
+	rightAimIK.Type = Enum.IKControlType.LookAt
+	rightAimIK.ChainRoot = RightShoulder
+	rightAimIK.EndEffector = RightHand
+	rightAimIK.EndEffectorOffset = rightHandCf:ToObjectSpace(muzzleCf)
+	rightAimIK.Target = aimTargetAttachment
+	rightAimIK.Weight = 1
+	rightAimIK.SmoothTime = 0.035
+	rightAimIK.Priority = 1
+	rightAimIK.Parent = Humanoid
 
-	RightHand.CFrame = adjustedHandC0
-	weaponHandle.CFrame =
-		adjustedHandPose:Inverse()
-		* originalHandPose
-		* weaponHandleOriginC0
+	if LeftShoulder and LeftHand and leftGrip and leftGrip:IsA("Attachment") then
+		local leftHandCf = getWorldCFrame(LeftHand)
+		local leftGripCf = getWorldCFrame(leftGrip)
+
+		if leftHandCf and leftGripCf then
+			leftGripIK = Instance.new("IKControl")
+			leftGripIK.Name = "ThirdPersonLeftHandGrip"
+			leftGripIK.Type = Enum.IKControlType.Transform
+			leftGripIK.ChainRoot = LeftShoulder
+			leftGripIK.EndEffector = LeftHand
+			leftGripIK.Target = leftGrip
+			-- Preserve the authored hand-to-grip relationship, then let IK keep
+			-- that full position and orientation rigid as the weapon rotates.
+			leftGripIK.Offset = leftGripCf:ToObjectSpace(leftHandCf)
+			leftGripIK.Weight = 1
+			leftGripIK.SmoothTime = 0.05
+			leftGripIK.Priority = 2
+			leftGripIK.Parent = Humanoid
+		end
+	elseif not warnedMissingLeftGrip then
+		warnedMissingLeftGrip = true
+		warn("AimRangeWeapon: add a LeftGrip Attachment under the weapon handle for two-handed IK")
+	end
+
+	return true
 end
 
 ---------------------------------------------------------------------- 
@@ -685,15 +634,14 @@ RunService.RenderStepped:Connect(function()
 	end
 
 	------------------------------------------------------------------
-	-- 1) Use the shoulder for the remaining muzzle error. The holding
-	--    animation still drives Bone.Transform; this adjusts the bone's
-	--    base CFrame underneath that animated pose.
+	-- 1) Native IK aims through the muzzle while preserving the hold
+	--    animation. Left-hand IK targets the weapon's fixed LeftGrip.
 	------------------------------------------------------------------
 
 	if muzzle and muzzle.Parent then
-		applyShoulderCorrection(Point)
-		applySupportShoulderCorrection()
-		applyGripHandOffset()
+		if setupIK() and aimTargetAttachment then
+			aimTargetAttachment.CFrame = root.CFrame:ToObjectSpace(CFrame.new(Point))
+		end
 	else
 		muzzle = findWeaponMuzzle(currentHeldWeapon)
 	end
@@ -707,11 +655,7 @@ RunService.RenderStepped:Connect(function()
 	if muzzle and muzzle.Parent then
 		local src
 
-		if muzzle:IsA("Attachment") then
-			src = muzzle.WorldCFrame
-		elseif muzzle:IsA("BasePart") then
-			src = muzzle.CFrame
-		end
+		src = getWorldCFrame(muzzle)
 
 		if src then
 			muzzleCF = src
@@ -769,12 +713,15 @@ CurrentHeldToolChangedEvent.OnClientEvent:Connect(function(toolName, slot)
 	if isAimWeapon then
 		restoreAimPose()
 		weaponHandle = nil
-		weaponHandleOriginC0 = nil
+		rightGrip = nil
+		leftGrip = nil
+		warnedMissingLeftGrip = false
 
 		rangedWeaponEquipped = true
 		currentHeldWeapon = toolName
 
 		muzzle = findWeaponMuzzle(currentHeldWeapon)
+		ikSetupAt = os.clock() + 0.2
 
 		captureAimPose()
 
@@ -795,6 +742,9 @@ CurrentHeldToolChangedEvent.OnClientEvent:Connect(function(toolName, slot)
 	currentHeldWeapon = nil
 	muzzleCF = nil
 	muzzle = nil
+	weaponHandle = nil
+	rightGrip = nil
+	leftGrip = nil
 
 	if debugBeamPart then
 		debugBeamPart.Transparency = 1
