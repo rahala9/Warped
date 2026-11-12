@@ -119,7 +119,15 @@ local WaistOriginC0 = nil
 local TorsoOriginC0 = nil
 local RightOriginC0 = nil
 local LeftOriginC0 = nil
+local RightHandOriginC0 = nil
 local shoulderAimCorrection = CFrame.new()
+
+local weaponHandle = nil
+local weaponHandleOriginC0 = nil
+
+-- Small visual alignment offsets in studs. These do not change the muzzle aim.
+local RIGHT_GRIP_HAND_OFFSET = 0.15
+local SUPPORT_ARM_LEFT_OFFSET = 0.15
 
 local cframe = CFrame.new
 local angles = CFrame.Angles
@@ -161,6 +169,8 @@ local function resetAimState()
 	rangedWeaponEquipped = false
 	currentHeldWeapon = nil
 	shoulderAimCorrection = CFrame.new()
+	weaponHandle = nil
+	weaponHandleOriginC0 = nil
 
 	if debugBeamPart then
 		debugBeamPart.Transparency = 1
@@ -208,6 +218,12 @@ local function rebuildCharacterRefs(character)
 
 	if not RightHand then
 		RightHand = Character:FindFirstChild("Hand_R", true)
+	end
+
+	if RightHand then
+		RightHandOriginC0 = RightHand.CFrame
+	else
+		RightHandOriginC0 = nil
 	end
 
 	if Neck then
@@ -261,6 +277,14 @@ local function restoreAimPose()
 	end
 	shoulderAimCorrection = CFrame.new()
 
+	if weaponHandle and weaponHandleOriginC0 and weaponHandle.Parent then
+		weaponHandle.CFrame = weaponHandleOriginC0
+	end
+
+	if RightHand and RightHandOriginC0 then
+		RightHand.CFrame = RightHandOriginC0
+	end
+
 	if LeftShoulder and LeftOriginC0 then
 		LeftShoulder.CFrame = LeftOriginC0
 	end
@@ -273,6 +297,10 @@ local function captureAimPose()
 
 	if Torso then
 		TorsoOriginC0 = Torso.CFrame
+	end
+
+	if RightHand then
+		RightHandOriginC0 = RightHand.CFrame
 	end
 
 	shoulderAimCorrection = CFrame.new()
@@ -302,6 +330,13 @@ local function findWeaponMuzzle(toolName)
 
 	if not handle then
 		return nil
+	end
+
+	weaponHandle = handle
+	if handle:IsA("Attachment") then
+		weaponHandleOriginC0 = handle.CFrame
+	else
+		weaponHandleOriginC0 = nil
 	end
 
 	local firePart = handle:FindFirstChild("Muzzle")
@@ -440,11 +475,50 @@ local function applySupportShoulderCorrection()
 		leftParentWorldCf.Rotation:Inverse()
 		* worldCorrection
 		* leftParentWorldCf.Rotation
+	local supportOffset = leftParentWorldCf:VectorToObjectSpace(
+		-root.CFrame.RightVector * SUPPORT_ARM_LEFT_OFFSET
+	)
 
 	LeftShoulder.CFrame =
-		CFrame.new(LeftOriginC0.Position)
+		CFrame.new(LeftOriginC0.Position + supportOffset)
 		* leftLocalCorrection
 		* LeftOriginC0.Rotation
+end
+
+local function applyGripHandOffset()
+	if not RightHand
+		or not RightHandOriginC0
+		or not RightHand:IsA("Bone")
+		or not weaponHandle
+		or not weaponHandleOriginC0
+		or weaponHandle.Parent ~= RightHand
+	then
+		return
+	end
+
+	local handParentWorldCf = getParentWorldCFrame(RightHand)
+	if not handParentWorldCf then
+		return
+	end
+
+	local handOffset = handParentWorldCf:VectorToObjectSpace(
+		root.CFrame.RightVector * RIGHT_GRIP_HAND_OFFSET
+	)
+	local adjustedHandC0 =
+		CFrame.new(RightHandOriginC0.Position + handOffset)
+		* RightHandOriginC0.Rotation
+
+	-- Move the visible hand to the player's right, then apply the exact inverse
+	-- to the gun handle. The hand clears the mesh while the gun and muzzle stay
+	-- on the already-correct firing line.
+	local originalHandPose = RightHandOriginC0 * RightHand.Transform
+	local adjustedHandPose = adjustedHandC0 * RightHand.Transform
+
+	RightHand.CFrame = adjustedHandC0
+	weaponHandle.CFrame =
+		adjustedHandPose:Inverse()
+		* originalHandPose
+		* weaponHandleOriginC0
 end
 
 ---------------------------------------------------------------------- 
@@ -619,6 +693,7 @@ RunService.RenderStepped:Connect(function()
 	if muzzle and muzzle.Parent then
 		applyShoulderCorrection(Point)
 		applySupportShoulderCorrection()
+		applyGripHandOffset()
 	else
 		muzzle = findWeaponMuzzle(currentHeldWeapon)
 	end
@@ -692,6 +767,10 @@ CurrentHeldToolChangedEvent.OnClientEvent:Connect(function(toolName, slot)
 		and itemsmodule[toolName].Aim == true
 
 	if isAimWeapon then
+		restoreAimPose()
+		weaponHandle = nil
+		weaponHandleOriginC0 = nil
+
 		rangedWeaponEquipped = true
 		currentHeldWeapon = toolName
 
