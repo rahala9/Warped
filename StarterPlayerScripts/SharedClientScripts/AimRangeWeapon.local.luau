@@ -113,7 +113,6 @@ local Waist = nil
 local RightShoulder = nil
 local LeftShoulder = nil
 local RightHand = nil
-local LeftHand = nil
 
 local NeckOriginC0 = nil
 local WaistOriginC0 = nil
@@ -121,10 +120,6 @@ local TorsoOriginC0 = nil
 local RightOriginC0 = nil
 local LeftOriginC0 = nil
 local shoulderAimCorrection = CFrame.new()
-local supportAimCorrection = CFrame.new()
-local supportGripOffset = nil :: CFrame?
-local supportGripCaptureAt = 0
-local supportGripCapturePending = false
 
 local cframe = CFrame.new
 local angles = CFrame.Angles
@@ -166,9 +161,6 @@ local function resetAimState()
 	rangedWeaponEquipped = false
 	currentHeldWeapon = nil
 	shoulderAimCorrection = CFrame.new()
-	supportAimCorrection = CFrame.new()
-	supportGripOffset = nil
-	supportGripCapturePending = false
 
 	if debugBeamPart then
 		debugBeamPart.Transparency = 1
@@ -216,19 +208,6 @@ local function rebuildCharacterRefs(character)
 
 	if not RightHand then
 		RightHand = Character:FindFirstChild("Hand_R", true)
-	end
-
-	LeftHand = nil
-
-	if LeftShoulder then
-		local elbow = LeftShoulder:FindFirstChild("Elbow_L")
-		if elbow then
-			LeftHand = elbow:FindFirstChild("Hand_L")
-		end
-	end
-
-	if not LeftHand then
-		LeftHand = Character:FindFirstChild("Hand_L", true)
 	end
 
 	if Neck then
@@ -281,9 +260,6 @@ local function restoreAimPose()
 		RightShoulder.CFrame = RightOriginC0
 	end
 	shoulderAimCorrection = CFrame.new()
-	supportAimCorrection = CFrame.new()
-	supportGripOffset = nil
-	supportGripCapturePending = false
 
 	if LeftShoulder and LeftOriginC0 then
 		LeftShoulder.CFrame = LeftOriginC0
@@ -300,10 +276,6 @@ local function captureAimPose()
 	end
 
 	shoulderAimCorrection = CFrame.new()
-	supportAimCorrection = CFrame.new()
-	supportGripOffset = nil
-	supportGripCaptureAt = os.clock() + 0.2
-	supportGripCapturePending = true
 end
 
 local function findWeaponMuzzle(toolName)
@@ -352,10 +324,6 @@ Player.CharacterAdded:Connect(function(character)
 end)
 
 local function getWorldCFrame(instance): CFrame?
-	if instance:IsA("Bone") then
-		return instance.TransformedWorldCFrame
-	end
-
 	if instance:IsA("Attachment") then
 		return instance.WorldCFrame
 	end
@@ -365,52 +333,6 @@ local function getWorldCFrame(instance): CFrame?
 	end
 
 	return nil
-end
-
-local function getSupportReference()
-	if not muzzle or not muzzle.Parent then
-		return nil
-	end
-
-	local parent = muzzle.Parent
-	if parent:IsA("Bone") or parent:IsA("Attachment") or parent:IsA("BasePart") then
-		return parent
-	end
-
-	return muzzle
-end
-
-local function captureSupportGrip(): boolean
-	if not supportGripCapturePending then
-		return supportGripOffset ~= nil
-	end
-
-	if os.clock() < supportGripCaptureAt then
-		return false
-	end
-
-	supportGripCapturePending = false
-
-	if not LeftHand then
-		return false
-	end
-
-	local reference = getSupportReference()
-	local referenceCf = reference and getWorldCFrame(reference)
-	local leftHandCf = getWorldCFrame(LeftHand)
-
-	if not referenceCf or not leftHandCf then
-		return false
-	end
-
-	-- Only constrain an animation that is actually posing the off hand on the
-	-- weapon. One-handed tools keep their original animation untouched.
-	if (leftHandCf.Position - referenceCf.Position).Magnitude > 2 then
-		return false
-	end
-
-	supportGripOffset = referenceCf:ToObjectSpace(leftHandCf)
-	return true
 end
 
 local function getParentWorldCFrame(instance): CFrame?
@@ -495,53 +417,33 @@ local function applyShoulderCorrection(targetPos: Vector3)
 		* RightOriginC0.Rotation
 end
 
-local function applySupportHandCorrection()
-	if not LeftShoulder or not LeftOriginC0 or not LeftHand or not supportGripOffset then
+local function applySupportShoulderCorrection()
+	if not LeftShoulder or not LeftOriginC0 or not RightShoulder then
 		return
 	end
 
-	local reference = getSupportReference()
-	local referenceCf = reference and getWorldCFrame(reference)
-	local leftHandCf = getWorldCFrame(LeftHand)
-	local leftShoulderCf = getWorldCFrame(LeftShoulder)
-	local parentWorldCf = getParentWorldCFrame(LeftShoulder)
+	local rightParentWorldCf = getParentWorldCFrame(RightShoulder)
+	local leftParentWorldCf = getParentWorldCFrame(LeftShoulder)
 
-	if not referenceCf or not leftHandCf or not leftShoulderCf or not parentWorldCf then
+	if not rightParentWorldCf or not leftParentWorldCf then
 		return
 	end
 
-	local targetPosition = (referenceCf * supportGripOffset).Position
-	local currentOffset = leftHandCf.Position - leftShoulderCf.Position
-	local desiredOffset = targetPosition - leftShoulderCf.Position
-
-	if currentOffset.Magnitude < 0.001 or desiredOffset.Magnitude < 0.001 then
-		return
-	end
-
-	local currentDirection = currentOffset.Unit
-	local desiredDirection = desiredOffset.Unit
-	local angle = math.acos(clamp(currentDirection:Dot(desiredDirection), -1, 1))
-
-	if angle >= math.rad(0.1) then
-		local axis = currentDirection:Cross(desiredDirection)
-
-		if axis.Magnitude >= 0.0001 then
-			local localAxis = parentWorldCf:VectorToObjectSpace(axis.Unit)
-			local correctionStep = math.min(angle * 0.35, math.rad(4))
-			local nextCorrection = CFrame.fromAxisAngle(localAxis, correctionStep) * supportAimCorrection
-			local correctionAxis, correctionAngle = nextCorrection:ToAxisAngle()
-
-			if correctionAngle > math.rad(35) then
-				nextCorrection = CFrame.fromAxisAngle(correctionAxis, math.rad(35))
-			end
-
-			supportAimCorrection = nextCorrection
-		end
-	end
+	-- Convert the weapon shoulder's accumulated correction into world space,
+	-- then into the support shoulder's parent space. This keeps the authored
+	-- two-hand pose moving as one unit without independently solving either hand.
+	local worldCorrection =
+		rightParentWorldCf.Rotation
+		* shoulderAimCorrection
+		* rightParentWorldCf.Rotation:Inverse()
+	local leftLocalCorrection =
+		leftParentWorldCf.Rotation:Inverse()
+		* worldCorrection
+		* leftParentWorldCf.Rotation
 
 	LeftShoulder.CFrame =
 		CFrame.new(LeftOriginC0.Position)
-		* supportAimCorrection
+		* leftLocalCorrection
 		* LeftOriginC0.Rotation
 end
 
@@ -715,17 +617,8 @@ RunService.RenderStepped:Connect(function()
 	------------------------------------------------------------------
 
 	if muzzle and muzzle.Parent then
-		local supportGripReady = captureSupportGrip()
-
-		-- Wait for the holding animation to finish blending before recording its
-		-- support-hand grip. Once recorded, both arms can follow the same weapon.
-		if not supportGripCapturePending then
-			applyShoulderCorrection(Point)
-
-			if supportGripReady then
-				applySupportHandCorrection()
-			end
-		end
+		applyShoulderCorrection(Point)
+		applySupportShoulderCorrection()
 	else
 		muzzle = findWeaponMuzzle(currentHeldWeapon)
 	end
@@ -739,7 +632,11 @@ RunService.RenderStepped:Connect(function()
 	if muzzle and muzzle.Parent then
 		local src
 
-		src = getWorldCFrame(muzzle)
+		if muzzle:IsA("Attachment") then
+			src = muzzle.WorldCFrame
+		elseif muzzle:IsA("BasePart") then
+			src = muzzle.CFrame
+		end
 
 		if src then
 			muzzleCF = src
