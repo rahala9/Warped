@@ -1,0 +1,39 @@
+# Windows and macOS metadata
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Editor and local workspace state
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Logs, temporary files, and local environment files
+*.log
+*.tmp
+*.temp
+.env
+.env.*
+!.env.example
+
+# Roblox Studio place files and local backups
+# The synchronized Luau files are the source-controlled codebase.
+*.rbxl
+*.rbxlx
+*.rbxl.lock
+*.rbxl.autosave
+
+# Generated Rojo output
+sourcemap.json
+
+# Generated Wally package trees (track wally.toml and wally.lock)
+Packages/
+ServerPackages/
+DevPackages/
+
+# Test and coverage output
+coverage/
+coverage.json
+*.lcov

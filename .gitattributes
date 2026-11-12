@@ -1,0 +1,16 @@
+# Normalize text while keeping source files consistent across platforms.
+* text=auto
+
+.gitattributes text eol=lf
+.gitignore text eol=lf
+*.lua text eol=lf
+*.luau text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+
+# Roblox binary assets, if intentionally force-added later.
+*.rbxl binary
+*.rbxm binary
