@@ -119,6 +119,7 @@ local WaistOriginC0 = nil
 local TorsoOriginC0 = nil
 local RightOriginC0 = nil
 local LeftOriginC0 = nil
+local shoulderAimCorrection = CFrame.new()
 
 local cframe = CFrame.new
 local angles = CFrame.Angles
@@ -159,6 +160,7 @@ local function resetAimState()
 	muzzleCF = nil
 	rangedWeaponEquipped = false
 	currentHeldWeapon = nil
+	shoulderAimCorrection = CFrame.new()
 
 	if debugBeamPart then
 		debugBeamPart.Transparency = 1
@@ -257,6 +259,7 @@ local function restoreAimPose()
 	if RightShoulder and RightOriginC0 then
 		RightShoulder.CFrame = RightOriginC0
 	end
+	shoulderAimCorrection = CFrame.new()
 
 	if LeftShoulder and LeftOriginC0 then
 		LeftShoulder.CFrame = LeftOriginC0
@@ -272,6 +275,7 @@ local function captureAimPose()
 		TorsoOriginC0 = Torso.CFrame
 	end
 
+	shoulderAimCorrection = CFrame.new()
 end
 
 local function findWeaponMuzzle(toolName)
@@ -377,6 +381,10 @@ local function applyShoulderCorrection(targetPos: Vector3)
 	local angle = math.acos(dot)
 
 	if angle < math.rad(0.1) then
+		RightShoulder.CFrame =
+			CFrame.new(RightOriginC0.Position)
+			* shoulderAimCorrection
+			* RightOriginC0.Rotation
 		return
 	end
 
@@ -386,13 +394,26 @@ local function applyShoulderCorrection(targetPos: Vector3)
 		return
 	end
 
-	local maxShoulderCorrection = math.rad(75)
+	-- The muzzle transform is finalized after this render step, so solving the
+	-- entire error at once creates a one-frame feedback loop. Accumulate only a
+	-- small part of the residual error and keep it between frames instead.
+	local maxShoulderCorrection = math.rad(25)
+	local maxCorrectionStep = math.rad(3)
+	local correctionGain = 0.25
 	local localAxis = parentWorldCf:VectorToObjectSpace(axis.Unit)
-	local correction = CFrame.fromAxisAngle(localAxis, math.min(angle, maxShoulderCorrection))
+	local correctionStep = math.min(angle * correctionGain, maxCorrectionStep)
+	local nextCorrection = CFrame.fromAxisAngle(localAxis, correctionStep) * shoulderAimCorrection
+	local correctionAxis, correctionAngle = nextCorrection:ToAxisAngle()
+
+	if correctionAngle > maxShoulderCorrection then
+		nextCorrection = CFrame.fromAxisAngle(correctionAxis, maxShoulderCorrection)
+	end
+
+	shoulderAimCorrection = nextCorrection
 
 	RightShoulder.CFrame =
 		CFrame.new(RightOriginC0.Position)
-		* correction
+		* shoulderAimCorrection
 		* RightOriginC0.Rotation
 end
 
@@ -557,10 +578,6 @@ RunService.RenderStepped:Connect(function()
 
 	if Torso and TorsoOriginC0 then
 		Torso.CFrame = TorsoOriginC0 * angles(bodyPitch * 0.35, torsoYaw * 0.35, 0)
-	end
-
-	if RightShoulder and RightOriginC0 then
-		RightShoulder.CFrame = RightOriginC0
 	end
 
 	------------------------------------------------------------------
