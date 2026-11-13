@@ -21,6 +21,12 @@ if not WeaponEnergyEvent then
 	WeaponEnergyEvent.Name = "WeaponEnergy"
 	WeaponEnergyEvent.Parent = Remotes
 end
+local ProjectilePresentationEvent = Remotes:FindFirstChild("ProjectilePresentation")
+if not ProjectilePresentationEvent then
+	ProjectilePresentationEvent = Instance.new("RemoteEvent")
+	ProjectilePresentationEvent.Name = "ProjectilePresentation"
+	ProjectilePresentationEvent.Parent = Remotes
+end
 
 --Functions
 local InventoryFunctions = require(ServerScriptService.InventorySystem.DataInventoryFunctions)
@@ -164,6 +170,7 @@ ImpactDecalsService.Init({
 
 
 local Caster = FastCast.new()
+local NextPresentationShotId = 0
 
 --////////////////////////////////////////////////////////////////
 -- Per-player container
@@ -741,6 +748,28 @@ local function Fire(player, origin, directionInput, heldTool, weapon, keycode, m
 	local behavior = MakeBehaviorForShot(rayParams, weapon.WeaponAmmo)
 
 	local simBullet = Caster:Fire(origin, direction, modifiedBulletVelocity, behavior)
+	NextPresentationShotId += 1
+	local presentationShotId = NextPresentationShotId
+	local presentationCosmetic = simBullet.RayInfo and simBullet.RayInfo.CosmeticBulletObject
+	if presentationCosmetic and WeaponInfo.IsEnergyWeapon(weapon) then
+		presentationCosmetic:SetAttribute("PresentationShooterUserId", player.UserId)
+		presentationCosmetic:SetAttribute("PresentationShotId", presentationShotId)
+	end
+	if WeaponInfo.IsEnergyWeapon(weapon) then
+		ProjectilePresentationEvent:FireAllClients(
+			player,
+			weapon.Name,
+			origin,
+			direction,
+			weapon.WeaponAmmoSpeed,
+			weapon.WeaponMaxDistance,
+			presentationShotId
+		)
+	else
+		-- The shooter still needs a server-confirmed event for recoil even when
+		-- this presentation system has no muzzle effect for the damage type.
+		ProjectilePresentationEvent:FireClient(player, player, weapon.Name, origin, direction)
+	end
 
 	simBullet.UserData.Player = player
 	simBullet.UserData.WeaponName = weapon
@@ -846,6 +875,8 @@ local function OnRayTerminated(cast)
 	local provider = cast.UserData.PartProvider
 
 	if cosmeticBullet ~= nil then
+		cosmeticBullet:SetAttribute("PresentationShooterUserId", nil)
+		cosmeticBullet:SetAttribute("PresentationShotId", nil)
 		if ammo[cosmeticBullet.Name] and ammo[cosmeticBullet.Name].Destroy then
 			if provider then
 				ReturnBullet(cosmeticBullet, provider)

@@ -181,7 +181,7 @@ return {
 		end
 
 		local Projectile = EffectItems.Rocket.Rocket:Clone()
-		local weaponSource = weaponInfo.GetWeaponSource()
+		local weaponSource = weaponInfo.GetPresentationWeaponSource("BottleRocket")
 
 		if weaponSource == nil then
 			Projectile.CFrame = CFrame.new(startPos, endPos)

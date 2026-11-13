@@ -804,7 +804,7 @@ RunService.RenderStepped:Connect(function()
 		if src then
 			muzzleCF = src
 			-- Firing uses this exact rendered muzzle as its projectile origin.
-			weaponInfo.SetWeaponSource(src, currentHeldWeapon)
+			weaponInfo.SetWeaponSource(src, currentHeldWeapon, muzzle)
 		end
 	end
 

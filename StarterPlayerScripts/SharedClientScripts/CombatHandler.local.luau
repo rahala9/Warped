@@ -402,10 +402,15 @@ local function HandleInput(actionName, userInputState, input)
 
 	local hitPosition = getMouseHitPosition()
 	if (currentToolName and weaponsDef[currentToolName] and ((weaponsDef[currentToolName].Type == "Weapon") or (weaponsDef[currentToolName].Type == "Artifact"))) then
-		local attack = attacksModule[currentTool.WeaponAttacks[input.KeyCode.Name].Name]
+		local attackConfig = currentTool.WeaponAttacks
+			and currentTool.WeaponAttacks[input.KeyCode.Name]
+		if not attackConfig then
+			return Enum.ContextActionResult.Pass
+		end
+		local attack = attacksModule[attackConfig.Name]
 
 		--For when you don't want the projectile to come out until a Release point event in the animation
-		if (attack.DeferAttack) then
+		if (attack and attack.DeferAttack) then
 
 			PlayerState.HandleAttack(currentTool,input.KeyCode,hitPosition)
 
@@ -454,10 +459,15 @@ local function HandleMouseInput(actionName, userInputState, input)
 	--end
 
 	if (currentToolName and weaponsDef[currentToolName] and ((weaponsDef[currentToolName].Type == "Weapon") or (weaponsDef[currentToolName].Type == "Artifact"))) then
-		local attack = attacksModule[currentTool.WeaponAttacks[Enum.KeyCode.R.Name].Name]
+		local attackConfig = currentTool.WeaponAttacks
+			and currentTool.WeaponAttacks[Enum.KeyCode.R.Name]
+		if not attackConfig then
+			return
+		end
+		local attack = attacksModule[attackConfig.Name]
 
 		--For when you don't want the projectile to come out until a Release point event in the animation
-		if (attack.DeferAttack) then
+		if (attack and attack.DeferAttack) then
 			PlayerState.HandleAttack(currentTool,Enum.KeyCode.R,hitPosition)
 			UpdateUI(Enum.KeyCode.R)
 			return	
