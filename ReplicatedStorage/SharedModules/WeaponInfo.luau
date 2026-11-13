@@ -25,6 +25,11 @@ local functions = {
 	CurrentWeaponOrigin = nil,
 	CurrentWeaponName = nil,
 	CurrentAimUpdatedAt = nil,
+	CurrentWeaponSourceInstance = nil,
+	CurrentPresentationOrigin = nil,
+	CurrentPresentationWeaponName = nil,
+	CurrentPresentationUpdatedAt = nil,
+	CurrentPresentationSourceInstance = nil,
 	
 }
 
@@ -170,14 +175,48 @@ function functions.GetFiringPosition(player,heldToolName)
 	
 end
 
-function functions.SetWeaponSource(currentWeaponOrigin, weaponName)
+function functions.SetWeaponSource(currentWeaponOrigin, weaponName, sourceInstance)
 	functions.CurrentWeaponOrigin = currentWeaponOrigin
 	functions.CurrentWeaponName = weaponName
 	functions.CurrentAimUpdatedAt = currentWeaponOrigin and os.clock() or nil
+	functions.CurrentWeaponSourceInstance = sourceInstance
 end
 
 function functions.GetWeaponSource()
 	return functions.CurrentWeaponOrigin
+end
+
+function functions.GetWeaponSourceInstance()
+	return functions.CurrentWeaponSourceInstance
+end
+
+-- Client-only presentation source used by first-person muzzle flashes and
+-- tracers. Gameplay firing must continue to use GetFiringPosition so the
+-- camera-mounted viewmodel never becomes an authoritative shot origin.
+function functions.SetPresentationWeaponSource(currentWeaponOrigin, weaponName, sourceInstance)
+	functions.CurrentPresentationOrigin = currentWeaponOrigin
+	functions.CurrentPresentationWeaponName = weaponName
+	functions.CurrentPresentationUpdatedAt = currentWeaponOrigin and os.clock() or nil
+	functions.CurrentPresentationSourceInstance = sourceInstance
+end
+
+function functions.GetPresentationWeaponSource(weaponName)
+	if functions.CurrentPresentationOrigin
+		and (weaponName == nil or functions.CurrentPresentationWeaponName == weaponName)
+		and functions.CurrentPresentationUpdatedAt
+		and os.clock() - functions.CurrentPresentationUpdatedAt < 0.5
+	then
+		return functions.CurrentPresentationOrigin
+	end
+
+	return functions.CurrentWeaponOrigin
+end
+
+function functions.GetPresentationWeaponSourceInstance(weaponName)
+	if weaponName == nil or functions.CurrentPresentationWeaponName == weaponName then
+		return functions.CurrentPresentationSourceInstance
+	end
+	return nil
 end
 
 return functions
