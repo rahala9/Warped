@@ -453,8 +453,26 @@ local startPos = hrp.Position
 ------------------------------------------------------------------
 -- Shared target helpers
 ------------------------------------------------------------------
+local function isPlayerAlive(player: Player?): boolean
+	if not player or player.Parent ~= Players then
+		return false
+	end
+
+	local char = player.Character
+	if not char or char:GetAttribute("Dead") == true then
+		return false
+	end
+
+	local targetHumanoid = char:FindFirstChildOfClass("Humanoid")
+	if targetHumanoid and targetHumanoid.Health <= 0 then
+		return false
+	end
+
+	return true
+end
+
 local function getTargetHRP(player: Player?): BasePart?
-	if not player then
+	if not player or not isPlayerAlive(player) then
 		return nil
 	end
 
@@ -722,7 +740,7 @@ end
 -- THREAT SYSTEM FUNCTIONS
 ------------------------------------------------------------------
 local function updateThreat(player: Player?, damageDealt: number)
-	if not player then return end
+	if not isPlayerAlive(player) then return end
 
 	local userId = player.UserId
 	local now = os.time()
@@ -803,6 +821,17 @@ local function decayThreat()
 	local now = os.time()
 
 	for userId, threatData in pairs(threatTable) do
+		if not isPlayerAlive(threatData.Player) then
+			dprint(string.format("[THREAT] Clearing dead/invalid player: %s", threatData.Player.Name))
+			threatTable[userId] = nil
+
+			if currentTarget == threatData.Player then
+				currentTarget = nil
+			end
+
+			continue
+		end
+
 		local isCurrentTarget = currentTarget and currentTarget.UserId == userId
 
 		if not isCurrentTarget then

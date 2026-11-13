@@ -5,6 +5,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ContentProvider = game:GetService("ContentProvider")
 local StarterPlayer = game:GetService("StarterPlayer")
+local TweenService = game:GetService("TweenService")
 
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
@@ -25,10 +26,97 @@ local DisplayHUDEvent = Remotes:WaitForChild("DisplayHUD")
 local AttributesChangedEvent = Remotes:WaitForChild("AttributesChanged")
 local GuiShownClientEvent = Remotes:WaitForChild("GuiShownClient")
 local GuiHiddenClientEvent = Remotes:WaitForChild("GuiHiddenClient")
+local UpdateHealthEvent = Remotes:WaitForChild("UpdateHealth")
+local PlayerHitEvent = Remotes:WaitForChild("PlayerHit")
 
 -- GUI
 local SharedGUI = PlayerGui:WaitForChild("SharedGUI")
 local HUDGui = SharedGUI:WaitForChild("HUDGui")
+local ToolbeltGui = SharedGUI:WaitForChild("ToolbeltGui")
+
+----------------------------------------------------------------
+-- Gameplay health bar
+----------------------------------------------------------------
+local HealthBar = ToolbeltGui:FindFirstChild("CustomHealthBar")
+if not HealthBar then
+	HealthBar = Instance.new("Frame")
+	HealthBar.Name = "CustomHealthBar"
+	HealthBar.AnchorPoint = Vector2.new(0, 1)
+	-- Fits the black row immediately to the right of the red health cross.
+	HealthBar.Position = UDim2.new(0, 79, 1, -123)
+	HealthBar.Size = UDim2.fromOffset(121, 17)
+	HealthBar.BackgroundColor3 = Color3.fromRGB(10, 10, 12)
+	HealthBar.BackgroundTransparency = 0.08
+	HealthBar.BorderSizePixel = 0
+	HealthBar.ClipsDescendants = true
+	HealthBar.ZIndex = 40
+	HealthBar.Parent = ToolbeltGui
+
+	local fill = Instance.new("Frame")
+	fill.Name = "Fill"
+	fill.Size = UDim2.fromScale(1, 1)
+	fill.BackgroundColor3 = Color3.fromRGB(205, 28, 28)
+	fill.BorderSizePixel = 0
+	fill.ZIndex = 41
+	fill.Parent = HealthBar
+
+	local gradient = Instance.new("UIGradient")
+	gradient.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(105, 8, 12)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(245, 48, 38)),
+	})
+	gradient.Rotation = 90
+	gradient.Parent = fill
+
+	local value = Instance.new("TextLabel")
+	value.Name = "Value"
+	value.Size = UDim2.fromScale(1, 1)
+	value.BackgroundTransparency = 1
+	value.Font = Enum.Font.GothamBold
+	value.Text = ""
+	value.TextColor3 = Color3.fromRGB(255, 245, 235)
+	value.TextSize = 10
+	value.TextStrokeColor3 = Color3.fromRGB(35, 0, 0)
+	value.TextStrokeTransparency = 0.25
+	value.ZIndex = 42
+	value.Parent = HealthBar
+end
+
+local healthTween = nil
+local currentHealth = 0
+local maximumHealth = 1
+
+local function updateHealthBar(health, maxHealth)
+	health = tonumber(health)
+	maxHealth = tonumber(maxHealth)
+	if not health or not maxHealth or maxHealth <= 0 then
+		return
+	end
+
+	currentHealth = math.clamp(health, 0, maxHealth)
+	maximumHealth = maxHealth
+	local fraction = math.clamp(currentHealth / maximumHealth, 0, 1)
+
+	if healthTween then
+		healthTween:Cancel()
+	end
+
+	healthTween = TweenService:Create(
+		HealthBar.Fill,
+		TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+		{Size = UDim2.fromScale(fraction, 1)}
+	)
+	healthTween:Play()
+	HealthBar.Value.Text = string.format("%d / %d", math.floor(currentHealth + 0.5), math.floor(maximumHealth + 0.5))
+end
+
+UpdateHealthEvent.OnClientEvent:Connect(updateHealthBar)
+PlayerHitEvent.OnClientEvent:Connect(function(health, maxHealth)
+	updateHealthBar(health, maxHealth)
+end)
+
+-- Request authoritative initial values after the listener is connected.
+UpdateHealthEvent:FireServer("Request")
 
 local HUDAnimatedImageLabel = HUDGui:WaitForChild("HUDAnimatedImageLabel")
 local HUDLargeImageLabel = HUDGui:WaitForChild("HUDLargeImageLabel")

@@ -22,9 +22,77 @@ local itemsmodule = require(ReplicatedStorage:WaitForChild("InventorySystem"):Wa
 
 
 local functions = {
-	CurrentWeaponOrigin = nil
+	CurrentWeaponOrigin = nil,
+	CurrentWeaponName = nil,
+	CurrentAimUpdatedAt = nil,
 	
 }
+
+functions.PowerSources = {
+	Ammo = "Ammo",
+	Energy = "Energy",
+}
+
+local ENERGY_DAMAGE_TYPES = {
+	Laser = true,
+	Plasma = true,
+	Electric = true,
+	ParticleBeam = true,
+	Cryo = true,
+}
+
+local ENERGY_DEFAULTS = {
+	Laser = {Capacity = 100, Cost = 8, RecoveryRate = 24, RecoveryDelay = 0.8, Color = Color3.fromRGB(55, 225, 255)},
+	Electric = {Capacity = 100, Cost = 14, RecoveryRate = 20, RecoveryDelay = 1, Color = Color3.fromRGB(255, 230, 60)},
+	Plasma = {Capacity = 100, Cost = 25, RecoveryRate = 12, RecoveryDelay = 1.75, Color = Color3.fromRGB(210, 75, 255)},
+	ParticleBeam = {Capacity = 100, Cost = 18, RecoveryRate = 16, RecoveryDelay = 1.25, Color = Color3.fromRGB(100, 255, 190)},
+	Cryo = {Capacity = 100, Cost = 16, RecoveryRate = 14, RecoveryDelay = 1.5, Color = Color3.fromRGB(120, 190, 255)},
+}
+
+local FALLBACK_ENERGY = {
+	Capacity = 100,
+	Cost = 10,
+	RecoveryRate = 20,
+	RecoveryDelay = 1,
+	Color = Color3.fromRGB(55, 225, 255),
+}
+
+function functions.IsEnergyWeapon(weapon)
+	if not weapon then
+		return false
+	end
+
+	if weapon.PowerSource ~= nil then
+		return weapon.PowerSource == functions.PowerSources.Energy
+	end
+
+	return ENERGY_DAMAGE_TYPES[weapon.DamageType] == true
+end
+
+function functions.UsesAmmo(weapon)
+	if not weapon or functions.IsEnergyWeapon(weapon) then
+		return false
+	end
+
+	return weapon.WeaponAmmo ~= nil
+		and weapon.WeaponAmmo ~= "NoAmmo"
+		and not (weapon.Traits and weapon.Traits.UnlimitedAmmo)
+end
+
+function functions.GetEnergyConfig(weapon)
+	if not functions.IsEnergyWeapon(weapon) then
+		return nil
+	end
+
+	local defaults = ENERGY_DEFAULTS[weapon.DamageType] or FALLBACK_ENERGY
+	return {
+		Capacity = weapon.EnergyCapacity or defaults.Capacity,
+		Cost = weapon.EnergyCost or defaults.Cost,
+		RecoveryRate = weapon.EnergyRecoveryRate or defaults.RecoveryRate,
+		RecoveryDelay = weapon.EnergyRecoveryDelay or defaults.RecoveryDelay,
+		Color = weapon.EnergyColor or defaults.Color,
+	}
+end
 
 function functions.GetToolHandle(player,heldToolName)
 
@@ -36,7 +104,13 @@ function functions.GetToolHandle(player,heldToolName)
 	local modelName = itemsmodule[heldToolName].Model
 	
 	if (itemsmodule[heldToolName].NewTool) then
-		return player.Character:FindFirstChild(heldToolName)[modelName.."Handle"]
+		local character = player.Character
+		local toolModel = character and character:FindFirstChild(heldToolName)
+		local handleName = modelName.."Handle"
+
+		-- Two-handed IK temporarily moves the live handle beneath the root.
+		return (toolModel and toolModel:FindFirstChild(handleName))
+			or (character and character:FindFirstChild(handleName, true))
 	end
 	
 	local leftHand = player.Character.HumanoidRootPart["Root"]["Hips"]["Spine_01"]["Spine_02"]["Spine_03"]["Clavicle_L"]["Shoulder_L"]["Elbow_L"]["Hand_L"]
@@ -63,6 +137,17 @@ function functions.GetToolHandle(player,heldToolName)
 end
 
 function functions.GetFiringPosition(player,heldToolName)
+	-- AimRangeWeapon owns the rendered weapon while its two grip IK controls are
+	-- active. Use that exact muzzle transform instead of looking under the tool
+	-- model, because the live handle is temporarily parented to HumanoidRootPart.
+	if functions.CurrentWeaponOrigin
+		and functions.CurrentWeaponName == heldToolName
+		and functions.CurrentAimUpdatedAt
+		and os.clock() - functions.CurrentAimUpdatedAt < 0.5
+	then
+		return functions.CurrentWeaponOrigin
+	end
+
 	local HeldToolHandle = functions.GetToolHandle(player,heldToolName)
 	
 	if (not HeldToolHandle) then
@@ -85,9 +170,10 @@ function functions.GetFiringPosition(player,heldToolName)
 	
 end
 
--- Finds and returns a enemy object by its id
-function functions.SetWeaponSource(currentWeaponOrigin)
+function functions.SetWeaponSource(currentWeaponOrigin, weaponName)
 	functions.CurrentWeaponOrigin = currentWeaponOrigin
+	functions.CurrentWeaponName = weaponName
+	functions.CurrentAimUpdatedAt = currentWeaponOrigin and os.clock() or nil
 end
 
 function functions.GetWeaponSource()

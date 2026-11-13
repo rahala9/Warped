@@ -35,6 +35,20 @@ local AIConfig = (spawnerCfg and spawnerCfg.AIConfig) or {}
 local currentTarget = nil
 local cleaningTarget = nil -- Instance (BasePart), not a position
 
+local function isPlayerAlive(player)
+	if not player or player.Parent ~= Players then
+		return false
+	end
+
+	local character = player.Character
+	if not character or character:GetAttribute("Dead") == true then
+		return false
+	end
+
+	local targetHumanoid = character:FindFirstChildOfClass("Humanoid")
+	return not targetHumanoid or targetHumanoid.Health > 0
+end
+
 
 -- ========================================
 -- THREAT SYSTEM
@@ -459,7 +473,7 @@ end
 -- THREAT SYSTEM FUNCTIONS
 ------------------------------------------------------------------
 local function updateThreat(player, damageDealt)
-	if not player then return end
+	if not isPlayerAlive(player) then return end
 
 	local userId = player.UserId
 	local now = os.time()
@@ -530,6 +544,14 @@ local function decayThreat()
 	local now = os.time()
 
 	for userId, threatData in pairs(threatTable) do
+		if not isPlayerAlive(threatData.Player) then
+			threatTable[userId] = nil
+			if currentTarget == threatData.Player then
+				currentTarget = nil
+			end
+			continue
+		end
+
 		local isCurrentTarget = (currentTarget and currentTarget.UserId == userId)
 
 		if not isCurrentTarget then

@@ -3,13 +3,38 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local StatesFunctions = require(ServerScriptService.Data.DataStatesFunctions)
 local AttributesFunctions = require(ServerScriptService.Data.DataAttributesFunctions)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
 local clientPlayerHitEvent = ReplicatedStorage:WaitForChild("SharedRemotes"):WaitForChild("PlayerHit")
+local UpdateHealthEvent = ReplicatedStorage:WaitForChild("SharedRemotes"):WaitForChild("UpdateHealth")
 local showDeathUIEvent = ReplicatedStorage:WaitForChild("SharedRemotes"):WaitForChild("ShowDeathUI")
 local enemiesModule = require(game.ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("Enemies")) 
 local EffectsFunctions = require(ServerScriptService.Data.DataEffectsFunctions)
 local EffectsDef = require(ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("Effects"))
 local PlayerStateChangeEvent = ReplicatedStorage:WaitForChild("SharedRemotes"):WaitForChild("PlayerStateChange")
 local CurrentHeldToolChangedEvent = ReplicatedStorage:WaitForChild("SharedRemotes"):WaitForChild("CurrentHeldToolChanged")
+
+local lastHealthRequest = {}
+UpdateHealthEvent.OnServerEvent:Connect(function(player, action)
+	if action ~= "Request" then
+		return
+	end
+
+	local now = os.clock()
+	if now - (lastHealthRequest[player] or 0) < 0.5 then
+		return
+	end
+	lastHealthRequest[player] = now
+
+	UpdateHealthEvent:FireClient(
+		player,
+		StatesFunctions.GetHealth(player),
+		AttributesFunctions.GetMaxHealth(player)
+	)
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+	lastHealthRequest[player] = nil
+end)
 
 function TeleportToSpawnLocation(player, freeze)
 
@@ -143,8 +168,10 @@ function onPlayerHit(player,damage,enemyName,damageType)
 		wait(3)	
 		
 		StatesFunctions.SetHealth(player,AttributesFunctions.GetMaxHealth(player)*.75)
+		UpdateHealthEvent:FireClient(player, StatesFunctions.GetHealth(player), AttributesFunctions.GetMaxHealth(player))
 		
 		StatesFunctions.SetDead(player,false)
+		player.Character:SetAttribute("Dead", false)
 		
 		PlayerStateChangeEvent:FireClient(player,"Standing")
 		

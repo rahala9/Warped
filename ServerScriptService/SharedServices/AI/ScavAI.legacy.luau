@@ -30,6 +30,20 @@ local enemyDef = enemiesModule[ship.Name] or {}
 local currentTarget = nil
 local deathLocked = false
 
+local function isPlayerAlive(player)
+	if not player or player.Parent ~= Players then
+		return false
+	end
+
+	local character = player.Character
+	if not character or character:GetAttribute("Dead") == true then
+		return false
+	end
+
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	return not humanoid or humanoid.Health > 0
+end
+
 ----------------------------------------------------------------
 -- CONFIG
 ----------------------------------------------------------------
@@ -233,6 +247,7 @@ end
 -- PilotShipWeld: Part0 = HRP, Part1 = ship PrimaryPart directly
 ----------------------------------------------------------------
 local function getPlayerTargetPosition(player)
+	if not isPlayerAlive(player) then return nil end
 	local char = player.Character
 	if not char then return nil end
 	local phrp = char:FindFirstChild("HumanoidRootPart")
@@ -247,6 +262,7 @@ local function getPlayerTargetPosition(player)
 end
 
 local function getPlayerTargetPart(player)
+	if not isPlayerAlive(player) then return nil end
 	local char = player.Character
 	if not char then return nil end
 	local phrp = char:FindFirstChild("HumanoidRootPart")
@@ -298,7 +314,7 @@ local THREAT_FORGET_TIME = 30
 local THREAT_RESET_DISTANCE = 1200
 
 local function updateThreat(player, damageDealt)
-	if not player then return end
+	if not isPlayerAlive(player) then return end
 	local userId = player.UserId
 	local now = os.time()
 
@@ -347,6 +363,14 @@ end
 local function decayThreat()
 	local now = os.time()
 	for uid, td in pairs(threatTable) do
+		if not isPlayerAlive(td.Player) then
+			threatTable[uid] = nil
+			if currentTarget == td.Player then
+				currentTarget = nil
+			end
+			continue
+		end
+
 		local isCurrentTarget = currentTarget and currentTarget.UserId == uid
 		if not isCurrentTarget then
 			threatTable[uid].Damage = td.Damage * (1 - THREAT_DECAY_RATE * CONFIG.AI_TICK)

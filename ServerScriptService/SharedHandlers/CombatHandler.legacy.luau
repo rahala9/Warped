@@ -15,6 +15,12 @@ local UpdateStaminaEvent = Remotes:WaitForChild("UpdateStamina")
 local NoAmmoEvent = Remotes:WaitForChild("NoAmmo")
 local Replicator = Remotes:WaitForChild("Replicator")
 local PlayerStateChangeEvent = Remotes:WaitForChild("PlayerStateChange")
+local WeaponEnergyEvent = Remotes:FindFirstChild("WeaponEnergy")
+if not WeaponEnergyEvent then
+	WeaponEnergyEvent = Instance.new("RemoteEvent")
+	WeaponEnergyEvent.Name = "WeaponEnergy"
+	WeaponEnergyEvent.Parent = Remotes
+end
 
 --Functions
 local InventoryFunctions = require(ServerScriptService.InventorySystem.DataInventoryFunctions)
@@ -26,6 +32,7 @@ local enemyFunctions = require(ServerScriptService.SharedFunctions:WaitForChild(
 local ToolFunctions = require(ServerScriptService.SharedFunctions:WaitForChild("ToolFunctions"))
 local CombatFunctions = require(ServerScriptService.SharedFunctions:WaitForChild("CombatFunctions"))
 local PlayerMovementFunctions = require(ServerScriptService.SharedFunctions:WaitForChild("PlayerMovementFunctions"))
+local WeaponInfo = require(ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("WeaponInfo"))
 
 --Definition Modules
 local enemiesModule = require(ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("Enemies"))
@@ -161,17 +168,98 @@ local Caster = FastCast.new()
 --////////////////////////////////////////////////////////////////
 -- Per-player container
 --////////////////////////////////////////////////////////////////
-local PerPlayer = {} -- [userId] = { CanFire = true, Track = nil }
+local PerPlayer = {} -- [userId] = { CanFire = true, Track = nil, Energy = {} }
 
 local function GetPP(player)
 	local uid = player.UserId
 	local pp = PerPlayer[uid]
 	if not pp then
-		pp = { CanFire = true, Track = nil }
+		pp = { CanFire = true, Track = nil, Energy = {} }
 		PerPlayer[uid] = pp
 	end
 	return pp
 end
+
+local function GetEnergyState(player, weapon)
+	local config = WeaponInfo.GetEnergyConfig(weapon)
+	if not config then
+		return nil, nil
+	end
+
+	local pp = GetPP(player)
+	local now = os.clock()
+	local state = pp.Energy[weapon.Name]
+	if not state then
+		state = {
+			Value = config.Capacity,
+			LastUpdate = now,
+			LastUse = -math.huge,
+		}
+		pp.Energy[weapon.Name] = state
+	end
+
+	state.Value = math.min(state.Value, config.Capacity)
+	local recoveryStart = math.max(state.LastUpdate, state.LastUse + config.RecoveryDelay)
+	if now > recoveryStart and state.Value < config.Capacity then
+		state.Value = math.min(config.Capacity, state.Value + ((now - recoveryStart) * config.RecoveryRate))
+	end
+	state.LastUpdate = now
+
+	return state, config
+end
+
+local function SendEnergyState(player, weapon, depleted)
+	local state, config = GetEnergyState(player, weapon)
+	if not state then
+		return
+	end
+
+	WeaponEnergyEvent:FireClient(player, {
+		WeaponName = weapon.Name,
+		Energy = state.Value,
+		Capacity = config.Capacity,
+		Cost = config.Cost,
+		RecoveryRate = config.RecoveryRate,
+		RecoveryDelay = config.RecoveryDelay,
+		RecoveryDelayRemaining = math.max(0, (state.LastUse + config.RecoveryDelay) - os.clock()),
+		Color = config.Color,
+		Depleted = depleted == true,
+	})
+end
+
+local function TryConsumeEnergy(player, weapon)
+	local state, config = GetEnergyState(player, weapon)
+	if not state then
+		return true
+	end
+
+	if state.Value + 0.001 < config.Cost then
+		SendEnergyState(player, weapon, true)
+		return false
+	end
+
+	local now = os.clock()
+	state.Value = math.max(0, state.Value - config.Cost)
+	state.LastUse = now
+	state.LastUpdate = now
+	SendEnergyState(player, weapon, false)
+	return true
+end
+
+WeaponEnergyEvent.OnServerEvent:Connect(function(player, action, weaponName)
+	if action ~= "Request" or type(weaponName) ~= "string" then
+		return
+	end
+
+	if StatesFunctions.GetCurrentTool(player) ~= weaponName then
+		return
+	end
+
+	local weapon = itemsmodule[weaponName]
+	if WeaponInfo.IsEnergyWeapon(weapon) then
+		SendEnergyState(player, weapon, false)
+	end
+end)
 
 Players.PlayerRemoving:Connect(function(player)
 	PerPlayer[player.UserId] = nil
@@ -868,7 +956,9 @@ local function HandleAutoMelee(player, weapon, keycode, mouseHit, heldToolName)
 		end
 	end
 
-	InventoryFunctions.RemoveItem(player, weapon.WeaponAmmo, 1, true)
+	if WeaponInfo.UsesAmmo(weapon) then
+		InventoryFunctions.RemoveItem(player, weapon.WeaponAmmo, 1, true)
+	end
 end
 
 local function HandleVFX(player, weapon, keycode)
@@ -1030,14 +1120,14 @@ local function HandleRanged(player, weapon, keycode, mouseHit, heldToolName, Too
 		for _ = 1, weapon.WeaponAttacks[keycode.Name].Multishot do
 			Fire(player, origin, direction, player.Character[heldToolName], weapon, keycode, mouseHit, HeldToolHandle)
 
-			if (weapon.WeaponAmmo ~= "NoAmmo") and not itemsmodule[weapon.Name].Traits["UnlimitedAmmo"] then
+			if WeaponInfo.UsesAmmo(weapon) then
 				InventoryFunctions.RemoveItem(player, weapon.WeaponAmmo, 1, true, true)
 			end
 		end
 	else
 		Fire(player, origin, direction, player.Character[heldToolName], weapon, keycode, mouseHit, HeldToolHandle)
 
-		if (weapon.WeaponAmmo ~= "NoAmmo") and not itemsmodule[weapon.Name].Traits["UnlimitedAmmo"] then
+		if WeaponInfo.UsesAmmo(weapon) then
 			InventoryFunctions.RemoveItem(player, weapon.WeaponAmmo, 1, true, true)
 		end
 	end
@@ -1067,8 +1157,7 @@ ReplicatedStorage:WaitForChild("SharedRemotes"):WaitForChild("PlayerInput").OnSe
 			return
 		end
 
-		if itemsmodule[item.Name].WeaponAmmo ~= nil
-			and itemsmodule[item.Name].WeaponAmmo ~= "NoAmmo"
+		if WeaponInfo.UsesAmmo(item)
 			and not InventoryFunctions.HasItem(player, itemsmodule[item.Name].WeaponAmmo, 1, true, true)
 		then
 			NoAmmoEvent:FireClient(player, true)
@@ -1081,8 +1170,6 @@ ReplicatedStorage:WaitForChild("SharedRemotes"):WaitForChild("PlayerInput").OnSe
 
 		if elapsedTime < fireRateTime then
 			return
-		else
-			StatesFunctions.SetLastFireTime(player, os.clock())
 		end
 
 		local nowTime = os.time()
@@ -1097,6 +1184,13 @@ ReplicatedStorage:WaitForChild("SharedRemotes"):WaitForChild("PlayerInput").OnSe
 				return
 			end
 
+			if item.SubType == "Ranged" and WeaponInfo.IsEnergyWeapon(item) then
+				if not TryConsumeEnergy(player, item) then
+					return
+				end
+			end
+
+			StatesFunctions.SetLastFireTime(player, os.clock())
 			InventoryFunctions.UpdateLastUsed(player, heldToolName, keycode, nowTime)
 			playerLastAttack[uid] = nowTime
 

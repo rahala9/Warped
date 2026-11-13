@@ -369,7 +369,7 @@ function functions.HandleOneTimeEffects(player,effectName,sourceLevel,source)
 
 	if (EffectsDef[effectName].Effect.Type == "Health" and EffectsDef[effectName].Effect.Action == "Add") then
 		StatesFunctions.AddHealth(player,sourceLevel)
-		UpdateHealthEvent:FireClient(player,StatesFunctions.GetHealth(player) , 100)
+		UpdateHealthEvent:FireClient(player,StatesFunctions.GetHealth(player), AttributesFunctions.GetMaxHealth(player))
 		functions.RemoveEffect(player,effectName)
 	elseif (EffectsDef[effectName].Effect.Type == "Food" and EffectsDef[effectName].Effect.Action == "Add") then
 		StatesFunctions.AddFood(player,sourceLevel)
@@ -706,9 +706,9 @@ function functions.SetEffect(player,effect,sourceLevel)
 					UpdateStaminaEvent:FireClient(player,StatesFunctions.GetStamina(player) , 100)
 				end
 			elseif (effect.Effect.Type=="Health" and effect.Effect.Action == "Add") then 
-				if (StatesFunctions.GetHealth(player) < 100) then --TODO remove hardcode
+				if StatesFunctions.GetHealth(player) < AttributesFunctions.GetMaxHealth(player) then
 					StatesFunctions.AddHealth(player,effect.Effect.Amount)
-					UpdateHealthEvent:FireClient(player,StatesFunctions.GetHealth(player) , 100)
+					UpdateHealthEvent:FireClient(player,StatesFunctions.GetHealth(player), AttributesFunctions.GetMaxHealth(player))
 					functions.RemoveEffect(player,effect.Name)
 				end
 

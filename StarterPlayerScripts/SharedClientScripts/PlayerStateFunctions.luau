@@ -40,6 +40,7 @@ local playerState = {
 
 	States = {},
 	ToolStates = {},
+	AimWalkTracks = {},
 	CurrentState = {},
 	CurrentToolState = {},
 	AttackAnimations = {},
@@ -391,6 +392,34 @@ local diveTrackConnection = nil
 function playerState.Init(player)
 
 	local humanoid = player.Character:WaitForChild("Humanoid")
+
+	for _, oldTrack in pairs(playerState.AimWalkTracks) do
+		oldTrack:Stop(0)
+		oldTrack:Destroy()
+	end
+	playerState.AimWalkTracks = {}
+
+	local aimWalkAnimationIds = {
+		F = "120482744185890",
+		FL = "125611663884723",
+		FR = "96696209527886",
+		L = "100489941233436",
+		R = "119855383067109",
+		B = "81276555482109",
+		BL = "126000605221638",
+		BR = "113275244072528",
+	}
+
+	for direction, animationId in pairs(aimWalkAnimationIds) do
+		local animation = Instance.new("Animation")
+		animation.Name = "AimWalk" .. direction
+		animation.AnimationId = "rbxassetid://" .. animationId
+
+		local track = humanoid:LoadAnimation(animation)
+		track.Priority = Enum.AnimationPriority.Movement
+		track.Looped = true
+		playerState.AimWalkTracks[direction] = track
+	end
 
 	--Load Animations
 
@@ -859,7 +888,7 @@ function playerState.Init(player)
 		["None"]={Name="None",Animation=nil,Playing=false,AnimationSpeed=1,AnimationFadeTime=0,AnimationWeight=1},
 
 		["Idle"]={Name="Idle",Animation=idleTrack,Playing=false,AnimationSpeed=1,AnimationFadeTime=0,AnimationWeight=1},
-		["Walking"]={Name="Walking",Animation=walkingFullBodyTrack,ToolAnimation=walkingTrack,Playing=false,AnimationSpeed=1,AnimationFadeTime=0,AnimationWeight=1},
+		["Walking"]={Name="Walking",Animation=walkingFullBodyTrack,ToolAnimation=walkingTrack,Playing=false,AnimationSpeed=1.25,AnimationFadeTime=0,AnimationWeight=1},
 		["Running"]={Name="Running",Animation=runningFullBodyTrack,ToolAnimation=runningTrack,Playing=false,AnimationSpeed=1,AnimationFadeTime=0,AnimationWeight=1},
 		["Jumping"]={Name="Jumping",Animation=jumpingTrack,Playing=false,AnimationSpeed=1,AnimationFadeTime=0,AnimationWeight=1},
 		["Climbing"]={Name="Climbing",Animation=climbingLadderTrack,Playing=false,AnimationSpeed=1,AnimationFadeTime=0,AnimationWeight=1},
@@ -970,8 +999,8 @@ function playerState.Init(player)
 	playerState.ToolStates = {
 		["NoTool"]={Name="NoTool",Animation=nil,AnimationMoving=nil,Playing=false,AnimationSpeed=1,AnimationFadeTime=0,AnimationWeight=1},
 		["NerdGun"]={Name="NerdGun",Animation=rifleIdleTrack,AnimationMoving=rifleIdleTrack,Playing=false,AnimationSpeed=1,AnimationFadeTime=0,AnimationWeight=1},
-		["SciCoP92"]={Name="SciCoP92",Animation=rifleIdleTrack,AnimationMoving=rifleIdleTrack,AnimationRunning=pistolRunningTrack,AnimationWalking=rifleIdleTrack,Playing=false,AnimationSpeed=1,AnimationFadeTime=0,AnimationWeight=1},
-		["SciCo00Zero"]={Name="SciCo00Zero",Animation=pistolIdleTrack,AnimationMoving=pistolIdleTrack,AnimationRunning=pistolRunningTrack,AnimationWalking=pistolIdleTrack,Playing=false,AnimationSpeed=1,AnimationFadeTime=0,AnimationWeight=1},
+		["SciCoP92"]={Name="SciCoP92",Animation=rifleIdleTrack,AnimationMoving=rifleIdleTrack,AnimationRunning=rifleIdleTrack,AnimationWalking=rifleIdleTrack,Playing=false,AnimationSpeed=1,AnimationFadeTime=0,AnimationWeight=1},
+		["SciCo00Zero"]={Name="SciCo00Zero",Animation=pistolIdleTrack,AnimationMoving=pistolIdleTrack,AnimationRunning=pistolIdleTrack,AnimationWalking=pistolIdleTrack,Playing=false,AnimationSpeed=1,AnimationFadeTime=0,AnimationWeight=1},
 		--["DeathRay"]={Name="DeathRay",Animation=gunIdleTrack,AnimationMoving=gunIdleTrack,Playing=false,AnimationSpeed=1,AnimationFadeTime=0,AnimationWeight=1},
 		--["BottleRocket"]={Name="BottleRocket",Animation=flashlightIdleTrack,AnimationMoving=flashlightIdleTrack,Playing=false,AnimationSpeed=1,AnimationFadeTime=0,AnimationWeight=1},
 		--["Fists"]={Name="Fists",Animation=boxingIdleTrack,AnimationMoving=boxingWalkingTrack,Playing=false,AnimationSpeed=1,AnimationFadeTime=0,AnimationWeight=1},

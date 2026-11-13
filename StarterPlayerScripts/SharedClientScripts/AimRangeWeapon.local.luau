@@ -125,19 +125,12 @@ local weaponHandle = nil
 local rightGrip = nil
 local leftGrip = nil
 
-local rightAimIK = nil :: IKControl?
 local leftGripIK = nil :: IKControl?
-local rightElbowPole = nil :: Attachment?
-local leftElbowPole = nil :: Attachment?
+local leftPalmEffector = nil :: Attachment?
 local ikSetupAt = 0
 local warnedMissingLeftGrip = false
 local teardownIK = nil
-
-local weaponHandleOriginalParent = nil
-local weaponHandleOriginalCFrame = nil :: CFrame?
-local rightGripLocal = nil :: CFrame?
-local muzzleLocal = nil :: CFrame?
-local torsoToRightGrip = nil :: CFrame?
+local shoulderAimCorrection = CFrame.new()
 
 local cframe = CFrame.new
 local angles = CFrame.Angles
@@ -145,6 +138,9 @@ local clamp = math.clamp
 
 local rangedWeaponEquipped = false
 local currentHeldWeapon = nil
+local autoRotateBeforeAim = nil :: boolean?
+local directionalWalkActive = false
+local stopDirectionalWalk = nil
 
 local debugBeamPart = nil :: Part?
 local debugBeamEnabled = false
@@ -174,6 +170,14 @@ local function getByPath(parent, path)
 end
 
 local function resetAimState()
+	weaponInfo.SetWeaponSource(nil, nil)
+	if Humanoid and autoRotateBeforeAim ~= nil then
+		Humanoid.AutoRotate = autoRotateBeforeAim
+	end
+	if stopDirectionalWalk then
+		stopDirectionalWalk(0)
+	end
+	autoRotateBeforeAim = nil
 	muzzle = nil
 	muzzleCF = nil
 	rangedWeaponEquipped = false
@@ -182,6 +186,7 @@ local function resetAimState()
 	rightGrip = nil
 	leftGrip = nil
 	warnedMissingLeftGrip = false
+	shoulderAimCorrection = CFrame.new()
 
 	if teardownIK then
 		teardownIK()
@@ -297,6 +302,7 @@ local function restoreAimPose()
 	if RightShoulder and RightOriginC0 then
 		RightShoulder.CFrame = RightOriginC0
 	end
+	shoulderAimCorrection = CFrame.new()
 
 	if LeftShoulder and LeftOriginC0 then
 		LeftShoulder.CFrame = LeftOriginC0
@@ -324,13 +330,13 @@ local function findWeaponMuzzle(toolName)
 	end
 
 	local handle = nil
+	local toolModel = Character:FindFirstChild(toolName)
 
 	if RightHand then
 		handle = RightHand:FindFirstChild(toolName .. "Handle")
 	end
 
 	if not handle then
-		local toolModel = Character:FindFirstChild(toolName)
 		if toolModel then
 			handle = toolModel:FindFirstChild(toolName .. "Handle")
 		end
@@ -346,7 +352,13 @@ local function findWeaponMuzzle(toolName)
 
 	weaponHandle = handle
 	rightGrip = handle:FindFirstChild("RightGrip", true)
+		or handle:FindFirstChild("RightGripAttachment", true)
+		or (toolModel and toolModel:FindFirstChild("RightGrip", true))
+		or (toolModel and toolModel:FindFirstChild("RightGripAttachment", true))
 	leftGrip = handle:FindFirstChild("LeftGrip", true)
+		or handle:FindFirstChild("LeftGripAttachment", true)
+		or (toolModel and toolModel:FindFirstChild("LeftGrip", true))
+		or (toolModel and toolModel:FindFirstChild("LeftGripAttachment", true))
 
 	local firePart = handle:FindFirstChild("Muzzle")
 
@@ -395,201 +407,141 @@ local function getWorldCFrame(instance): CFrame?
 end
 
 teardownIK = function()
-	if rightAimIK then
-		rightAimIK:Destroy()
-		rightAimIK = nil
-	end
-
 	if leftGripIK then
 		leftGripIK:Destroy()
 		leftGripIK = nil
 	end
 
-	if rightElbowPole then
-		rightElbowPole:Destroy()
-		rightElbowPole = nil
+	if leftPalmEffector then
+		leftPalmEffector:Destroy()
+		leftPalmEffector = nil
 	end
-
-	if leftElbowPole then
-		leftElbowPole:Destroy()
-		leftElbowPole = nil
-	end
-
-	if weaponHandle
-		and weaponHandleOriginalParent
-		and weaponHandleOriginalParent.Parent
-		and weaponHandleOriginalCFrame
-		and weaponHandle.Parent
-	then
-		weaponHandle.Parent = weaponHandleOriginalParent
-		weaponHandle.CFrame = weaponHandleOriginalCFrame
-	end
-
-	weaponHandleOriginalParent = nil
-	weaponHandleOriginalCFrame = nil
-	rightGripLocal = nil
-	muzzleLocal = nil
-	torsoToRightGrip = nil
 end
 
-local function setupIK(): boolean
-	if rightAimIK then
+local function setupSupportHandIK(): boolean
+	if leftGripIK then
 		return true
 	end
 
 	if os.clock() < ikSetupAt
 		or not Humanoid
-		or not root
-		or not RightShoulder
-		or not RightHand
 		or not LeftShoulder
 		or not LeftHand
-		or not Torso
-		or not weaponHandle
-		or not weaponHandle:IsA("Bone")
-		or not muzzle
-		or not muzzle.Parent
 	then
 		return false
 	end
 
-	if not rightGrip
-		or not rightGrip:IsA("Attachment")
-		or not leftGrip
-		or not leftGrip:IsA("Attachment")
-	then
-		if not warnedMissingLeftGrip then
-			warnedMissingLeftGrip = true
-			warn("AimRangeWeapon: RightGrip and LeftGrip must both be descendants of the weapon handle")
+	if leftGrip and leftGrip:IsA("Attachment") then
+		local leftHandCf = getWorldCFrame(LeftHand)
+		local leftGripCf = getWorldCFrame(leftGrip)
+		local elbowCf = LeftHand.Parent and getWorldCFrame(LeftHand.Parent)
+
+		if leftHandCf and leftGripCf and elbowCf then
+			local forearmDirection = leftHandCf.Position - elbowCf.Position
+			if forearmDirection.Magnitude < 0.001 then
+				return false
+			end
+
+			local handReach = leftGrip:GetAttribute("HandReach")
+			if type(handReach) ~= "number" then
+				handReach = 0.35
+			end
+
+			local palmWorldPosition =
+				leftHandCf.Position
+				+ forearmDirection.Unit * handReach
+			local palmLocalPosition = leftHandCf:PointToObjectSpace(palmWorldPosition)
+
+			leftPalmEffector = Instance.new("Attachment")
+			leftPalmEffector.Name = "ThirdPersonLeftPalmEffector"
+			leftPalmEffector.CFrame = CFrame.new(palmLocalPosition)
+			leftPalmEffector.Parent = LeftHand
+
+			leftGripIK = Instance.new("IKControl")
+			leftGripIK.Name = "ThirdPersonLeftHandGrip"
+			leftGripIK.Type = Enum.IKControlType.Transform
+			leftGripIK.ChainRoot = LeftShoulder
+			leftGripIK.EndEffector = leftPalmEffector
+			leftGripIK.Target = leftGrip
+			-- The palm attachment keeps the wrist behind the grip. Transform IK also
+			-- owns wrist rotation so locomotion animations cannot turn the fingers
+			-- forward across the muzzle. PalmTwist turns the palm upward; PalmTurn
+			-- then turns the fingers across the weapon within that palm plane.
+			local palmTwist = leftGrip:GetAttribute("PalmTwist")
+			if type(palmTwist) ~= "number" then
+				palmTwist = 90
+			end
+			local palmTurn = leftGrip:GetAttribute("PalmTurn")
+			if type(palmTurn) ~= "number" then
+				palmTurn = 90
+			end
+			leftGripIK.Offset =
+				angles(0, math.rad(palmTwist), 0)
+				* angles(math.rad(palmTurn), 0, 0)
+			leftGripIK.Weight = 1
+			leftGripIK.SmoothTime = 0.05
+			leftGripIK.Priority = 2
+			leftGripIK.Parent = Humanoid
 		end
-		return false
+	elseif not warnedMissingLeftGrip then
+		warnedMissingLeftGrip = true
+		warn("AimRangeWeapon: add a LeftGrip Attachment anywhere inside the equipped weapon model")
 	end
-
-	local handleCf = getWorldCFrame(weaponHandle)
-	local rightHandCf = getWorldCFrame(RightHand)
-	local leftHandCf = getWorldCFrame(LeftHand)
-	local rightGripCf = getWorldCFrame(rightGrip)
-	local leftGripCf = getWorldCFrame(leftGrip)
-	local muzzleCf = getWorldCFrame(muzzle)
-	local torsoCf = getWorldCFrame(Torso)
-
-	if not handleCf
-		or not rightHandCf
-		or not leftHandCf
-		or not rightGripCf
-		or not leftGripCf
-		or not muzzleCf
-		or not torsoCf
-	then
-		return false
-	end
-
-	weaponHandleOriginalParent = weaponHandle.Parent
-	weaponHandleOriginalCFrame = weaponHandle.CFrame
-	rightGripLocal = handleCf:ToObjectSpace(rightGripCf)
-	muzzleLocal = handleCf:ToObjectSpace(muzzleCf)
-	torsoToRightGrip = torsoCf:ToObjectSpace(rightGripCf)
-
-	local rightGripToHand = rightGripCf:ToObjectSpace(rightHandCf)
-	local leftGripToHand = leftGripCf:ToObjectSpace(leftHandCf)
-
-	-- Detach the weapon pose from Hand_R while preserving its current rendered
-	-- world transform. From here the gun is aimed directly and both hands follow.
-	weaponHandle.Parent = root
-	weaponHandle.CFrame =
-		root.CFrame:ToObjectSpace(handleCf)
-		* weaponHandle.Transform:Inverse()
-
-	rightElbowPole = Instance.new("Attachment")
-	rightElbowPole.Name = "ThirdPersonRightElbowPole"
-	rightElbowPole.CFrame = CFrame.new(2, 0.5, -0.75)
-	rightElbowPole.Parent = root
-
-	leftElbowPole = Instance.new("Attachment")
-	leftElbowPole.Name = "ThirdPersonLeftElbowPole"
-	leftElbowPole.CFrame = CFrame.new(-2, 0.5, -0.75)
-	leftElbowPole.Parent = root
-
-	rightAimIK = Instance.new("IKControl")
-	rightAimIK.Name = "ThirdPersonRightHandGrip"
-	rightAimIK.Type = Enum.IKControlType.Transform
-	rightAimIK.ChainRoot = RightShoulder
-	rightAimIK.EndEffector = RightHand
-	rightAimIK.Target = rightGrip
-	rightAimIK.Offset = rightGripToHand
-	rightAimIK.Pole = rightElbowPole
-	rightAimIK.Weight = 1
-	rightAimIK.SmoothTime = 0.025
-	rightAimIK.Priority = 1
-	rightAimIK.Parent = Humanoid
-
-	leftGripIK = Instance.new("IKControl")
-	leftGripIK.Name = "ThirdPersonLeftHandGrip"
-	leftGripIK.Type = Enum.IKControlType.Transform
-	leftGripIK.ChainRoot = LeftShoulder
-	leftGripIK.EndEffector = LeftHand
-	leftGripIK.Target = leftGrip
-	leftGripIK.Offset = leftGripToHand
-	leftGripIK.Pole = leftElbowPole
-	leftGripIK.Weight = 1
-	leftGripIK.SmoothTime = 0.025
-	leftGripIK.Priority = 2
-	leftGripIK.Parent = Humanoid
 
 	return true
 end
 
-local function updateWeaponAim(targetPos: Vector3)
-	if not setupIK()
-		or not weaponHandle
-		or not weaponHandle.Parent
-		or not rightGripLocal
-		or not muzzleLocal
-		or not torsoToRightGrip
-		or not Torso
-	then
+local function getParentWorldCFrame(instance): CFrame?
+	local parent = instance and instance.Parent
+	if not parent then
+		return nil
+	end
+
+	return getWorldCFrame(parent)
+end
+
+local function applyShoulderCorrection(targetPos: Vector3)
+	if not RightShoulder or not RightOriginC0 or not muzzle or not muzzle.Parent then
 		return
 	end
 
-	local torsoCf = getWorldCFrame(Torso)
-
-	if not torsoCf then
+	local muzzleCf = getWorldCFrame(muzzle)
+	local parentWorldCf = getParentWorldCFrame(RightShoulder)
+	if not muzzleCf or not parentWorldCf then
 		return
 	end
 
-	local desiredGripPosition = (torsoCf * torsoToRightGrip).Position
-
-	-- Two short passes account for the muzzle position changing as the weapon
-	-- rotates around RightGrip, keeping the rendered barrel on the shot line.
-	for _ = 1, 2 do
-		local currentMuzzleCf = getWorldCFrame(muzzle)
-		if not currentMuzzleCf then
-			return
-		end
-
-		local aimDirection = targetPos - currentMuzzleCf.Position
-		if aimDirection.Magnitude < 0.001 then
-			return
-		end
-
-		aimDirection = aimDirection.Unit
-		local up = torsoCf.UpVector
-
-		if math.abs(aimDirection:Dot(up)) > 0.98 then
-			up = root.CFrame.RightVector
-		end
-
-		local desiredMuzzleRotation = CFrame.lookAt(Vector3.zero, aimDirection, up).Rotation
-		local desiredHandleRotation = desiredMuzzleRotation * muzzleLocal.Rotation:Inverse()
-		local desiredHandlePosition =
-			desiredGripPosition
-			- desiredHandleRotation:VectorToWorldSpace(rightGripLocal.Position)
-		local desiredHandleCf = CFrame.new(desiredHandlePosition) * desiredHandleRotation
-
-		weaponHandle.CFrame =
-			root.CFrame:ToObjectSpace(desiredHandleCf)
-			* weaponHandle.Transform:Inverse()
+	local toTarget = targetPos - muzzleCf.Position
+	if toTarget.Magnitude < 0.001 then
+		return
 	end
+
+	local currentDirection = muzzleCf.LookVector.Unit
+	local desiredDirection = toTarget.Unit
+	local angle = math.acos(clamp(currentDirection:Dot(desiredDirection), -1, 1))
+
+	if angle >= math.rad(0.1) then
+		local axis = currentDirection:Cross(desiredDirection)
+		if axis.Magnitude > 0.0001 then
+			local localAxis = parentWorldCf:VectorToObjectSpace(axis.Unit)
+			local correctionStep = math.min(angle * 0.25, math.rad(3))
+			local nextCorrection =
+				CFrame.fromAxisAngle(localAxis, correctionStep)
+				* shoulderAimCorrection
+			local correctionAxis, correctionAngle = nextCorrection:ToAxisAngle()
+
+			if correctionAngle > math.rad(25) then
+				nextCorrection = CFrame.fromAxisAngle(correctionAxis, math.rad(25))
+			end
+
+			shoulderAimCorrection = nextCorrection
+		end
+	end
+
+	RightShoulder.CFrame =
+		CFrame.new(RightOriginC0.Position)
+		* shoulderAimCorrection
+		* RightOriginC0.Rotation
 end
 
 ---------------------------------------------------------------------- 
@@ -631,10 +583,6 @@ _G.SetAimDebugBeamEnabled = SetDebugBeamEnabled
 -- State helpers
 ----------------------------------------------------------------------
 
-local function IsMoving(): boolean
-	return Humanoid ~= nil and Humanoid.MoveDirection.Magnitude > 0.05
-end
-
 local function IsInAir(s)
 	if not s then
 		return false
@@ -646,6 +594,80 @@ local function IsInAir(s)
 		or n == PlayerState.States.Falling.Name
 		or n == PlayerState.States.RunningJump.Name
 		or n == PlayerState.States.DoubleJump.Name
+end
+
+local WALK_DIRECTIONS = {"F", "FR", "R", "BR", "B", "BL", "L", "FL"}
+local AIM_WALK_ANIMATION_SPEED = 1.25
+
+stopDirectionalWalk = function(fadeTime)
+	if not directionalWalkActive then
+		return
+	end
+
+	for _, track in pairs(PlayerState.AimWalkTracks or {}) do
+		if track.IsPlaying then
+			track:Stop(fadeTime or 0.12)
+		end
+	end
+
+	directionalWalkActive = false
+end
+
+local function updateDirectionalWalk()
+	local currentState = PlayerState.CurrentState
+	local isWalking =
+		currentState
+		and PlayerState.States.Walking
+		and currentState.Name == PlayerState.States.Walking.Name
+		and not PlayerState.IsSprinting
+	local moveDirection = Humanoid.MoveDirection
+
+	if not isWalking or moveDirection.Magnitude < 0.05 then
+		stopDirectionalWalk(0.12)
+		return
+	end
+
+	local tracks = PlayerState.AimWalkTracks
+	if not tracks or not tracks.F then
+		return
+	end
+
+	if not directionalWalkActive then
+		local walkingState = PlayerState.States.Walking
+		if walkingState.ToolAnimation and walkingState.ToolAnimation.IsPlaying then
+			walkingState.ToolAnimation:Stop(0.12)
+		end
+		if walkingState.Animation and walkingState.Animation.IsPlaying then
+			walkingState.Animation:Stop(0.12)
+		end
+
+		for _, track in pairs(tracks) do
+			track:Play(0.12, 0.001, AIM_WALK_ANIMATION_SPEED)
+		end
+		directionalWalkActive = true
+	end
+
+	local localMove = root.CFrame:VectorToObjectSpace(moveDirection.Unit)
+	local sectorPosition = math.atan2(localMove.X, -localMove.Z) / (math.pi / 4)
+	if sectorPosition < 0 then
+		sectorPosition += 8
+	end
+
+	local lowerSector = math.floor(sectorPosition) % 8
+	local upperSector = (lowerSector + 1) % 8
+	local blend = sectorPosition - math.floor(sectorPosition)
+	local lowerDirection = WALK_DIRECTIONS[lowerSector + 1]
+	local upperDirection = WALK_DIRECTIONS[upperSector + 1]
+
+	for direction, track in pairs(tracks) do
+		local weight = 0.001
+		if direction == lowerDirection then
+			weight = math.max(0.001, 1 - blend)
+		elseif direction == upperDirection then
+			weight = math.max(0.001, blend)
+		end
+		track:AdjustWeight(weight, 0.1)
+	end
 end
 
 local function canAim()
@@ -678,10 +700,6 @@ local function canAim()
 		return false
 	end
 
-	if IsMoving() then
-		return false
-	end
-
 	if IsInAir(PlayerState.CurrentState) then
 		return false
 	end
@@ -695,6 +713,7 @@ end
 
 RunService.RenderStepped:Connect(function()
 	if not rangedWeaponEquipped then
+		stopDirectionalWalk(0.12)
 		muzzleCF = nil
 
 		if debugBeamPart then
@@ -705,6 +724,7 @@ RunService.RenderStepped:Connect(function()
 	end
 
 	if not canAim() then
+		stopDirectionalWalk(0.12)
 		return
 	end
 
@@ -725,6 +745,8 @@ RunService.RenderStepped:Connect(function()
 		AimTarget.GetScreenPoint(PlayerMouse),
 		Character
 	)
+
+	updateDirectionalWalk()
 
 	------------------------------------------------------------------
 	-- 0) Turn the root only as far as necessary, leaving bounded yaw
@@ -756,12 +778,14 @@ RunService.RenderStepped:Connect(function()
 	end
 
 	------------------------------------------------------------------
-	-- 1) Aim the weapon independently, then let both arm IK chains follow
-	--    the authored RightGrip and LeftGrip attachments.
+	-- 1) The authored animation keeps ownership of the weapon and right hand.
+	--    Correct the right shoulder until the actual muzzle reaches the target,
+	--    while left-hand IK only keeps the support hand on LeftGrip.
 	------------------------------------------------------------------
 
 	if muzzle and muzzle.Parent then
-		updateWeaponAim(Point)
+		applyShoulderCorrection(Point)
+		setupSupportHandIK()
 	else
 		muzzle = findWeaponMuzzle(currentHeldWeapon)
 	end
@@ -779,7 +803,8 @@ RunService.RenderStepped:Connect(function()
 
 		if src then
 			muzzleCF = src
-			weaponInfo.SetWeaponSource(src)
+			-- Firing uses this exact rendered muzzle as its projectile origin.
+			weaponInfo.SetWeaponSource(src, currentHeldWeapon)
 		end
 	end
 
@@ -839,6 +864,10 @@ CurrentHeldToolChangedEvent.OnClientEvent:Connect(function(toolName, slot)
 
 		rangedWeaponEquipped = true
 		currentHeldWeapon = toolName
+		if autoRotateBeforeAim == nil then
+			autoRotateBeforeAim = Humanoid.AutoRotate
+		end
+		Humanoid.AutoRotate = false
 
 		muzzle = findWeaponMuzzle(currentHeldWeapon)
 		ikSetupAt = os.clock() + 0.2
@@ -857,6 +886,12 @@ CurrentHeldToolChangedEvent.OnClientEvent:Connect(function(toolName, slot)
 	end
 
 	restoreAimPose()
+	weaponInfo.SetWeaponSource(nil, nil)
+	stopDirectionalWalk(0.12)
+	if autoRotateBeforeAim ~= nil then
+		Humanoid.AutoRotate = autoRotateBeforeAim
+		autoRotateBeforeAim = nil
+	end
 
 	rangedWeaponEquipped = false
 	currentHeldWeapon = nil

@@ -14,6 +14,7 @@ local GetInventoryEvent = ReplicatedStorage:WaitForChild("InventorySystem"):Wait
 local CurrentHeldToolChangedEvent = ReplicatedStorage_SharedRemotes:WaitForChild("CurrentHeldToolChanged")
 local ChangeTargetEvent = ReplicatedStorage_SharedRemotes:WaitForChild("ChangeTarget")
 local NoAmmoEvent = ReplicatedStorage_SharedRemotes:WaitForChild("NoAmmo")
+local WeaponEnergyEvent = ReplicatedStorage_SharedRemotes:WaitForChild("WeaponEnergy")
 local sendinv = ReplicatedStorage_SharedRemotes:WaitForChild("SendInv")
 local clientPlayerHitEvent = ReplicatedStorage_SharedRemotes:WaitForChild("PlayerHit") 
 local PlayerInputEvent = ReplicatedStorage_SharedRemotes:WaitForChild("PlayerInput")
@@ -44,7 +45,79 @@ local char = CurrentPlayer.Character or CurrentPlayer.CharacterAdded:Wait()
 local CombatGui = CurrentPlayer.PlayerGui:WaitForChild("SharedGUI"):WaitForChild("CombatGui")
 local CombatFrame = CombatGui:WaitForChild("CombatFrame")
 local AttacksFrame = CombatFrame:WaitForChild("Attacks")
+local AmmoFrame = CombatFrame:WaitForChild("Ammo")
 local playerGui = player:WaitForChild("PlayerGui")
+
+local EnergyFrame = CombatFrame:FindFirstChild("Energy")
+if not EnergyFrame then
+	EnergyFrame = Instance.new("Frame")
+	EnergyFrame.Name = "Energy"
+	EnergyFrame.AnchorPoint = AmmoFrame.AnchorPoint
+	EnergyFrame.Position = AmmoFrame.Position
+	EnergyFrame.Size = UDim2.fromOffset(190, 48)
+	EnergyFrame.BackgroundColor3 = Color3.fromRGB(16, 22, 31)
+	EnergyFrame.BackgroundTransparency = 0.12
+	EnergyFrame.BorderSizePixel = 0
+	EnergyFrame.ZIndex = 10
+	EnergyFrame.Parent = CombatFrame
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 6)
+	corner.Parent = EnergyFrame
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Name = "Stroke"
+	stroke.Color = Color3.fromRGB(80, 150, 175)
+	stroke.Transparency = 0.2
+	stroke.Thickness = 1
+	stroke.Parent = EnergyFrame
+
+	local title = Instance.new("TextLabel")
+	title.Name = "Title"
+	title.BackgroundTransparency = 1
+	title.Position = UDim2.fromOffset(8, 2)
+	title.Size = UDim2.new(1, -16, 0, 18)
+	title.Font = Enum.Font.GothamBold
+	title.Text = "WEAPON ENERGY"
+	title.TextColor3 = Color3.fromRGB(220, 235, 245)
+	title.TextSize = 12
+	title.TextXAlignment = Enum.TextXAlignment.Left
+	title.ZIndex = 11
+	title.Parent = EnergyFrame
+
+	local valueLabel = title:Clone()
+	valueLabel.Name = "Value"
+	valueLabel.Text = "100 / 100"
+	valueLabel.TextXAlignment = Enum.TextXAlignment.Right
+	valueLabel.Parent = EnergyFrame
+
+	local bar = Instance.new("Frame")
+	bar.Name = "Bar"
+	bar.Position = UDim2.fromOffset(8, 25)
+	bar.Size = UDim2.new(1, -16, 0, 14)
+	bar.BackgroundColor3 = Color3.fromRGB(38, 48, 61)
+	bar.BorderSizePixel = 0
+	bar.ClipsDescendants = true
+	bar.ZIndex = 11
+	bar.Parent = EnergyFrame
+
+	local barCorner = Instance.new("UICorner")
+	barCorner.CornerRadius = UDim.new(0, 4)
+	barCorner.Parent = bar
+
+	local fill = Instance.new("Frame")
+	fill.Name = "Fill"
+	fill.Size = UDim2.fromScale(1, 1)
+	fill.BackgroundColor3 = Color3.fromRGB(55, 225, 255)
+	fill.BorderSizePixel = 0
+	fill.ZIndex = 12
+	fill.Parent = bar
+
+	local fillCorner = Instance.new("UICorner")
+	fillCorner.CornerRadius = UDim.new(0, 4)
+	fillCorner.Parent = fill
+end
+EnergyFrame.Visible = false
 
 --Context and Actions
 
@@ -54,6 +127,7 @@ local unequippedEvent = nil
 local inputEvent = nil
 local activeWeapon = nil
 local activeAutoWeaponOn = false
+local energyDisplayState = nil
 
 local playerInventory = nil
 
@@ -85,6 +159,62 @@ NoAmmoEvent.OnClientEvent:Connect(function(noAmmo)
 		CombatFrame.Ammo.NoAmmo.Visible = false
 	end
 
+end)
+
+local function GetDisplayedEnergy()
+	if not energyDisplayState then
+		return 0
+	end
+
+	local elapsed = os.clock() - energyDisplayState.ReceivedAt
+	local recoveryTime = math.max(0, elapsed - energyDisplayState.RecoveryDelayRemaining)
+	return math.min(
+		energyDisplayState.Capacity,
+		energyDisplayState.Energy + (recoveryTime * energyDisplayState.RecoveryRate)
+	)
+end
+
+local function UpdateEnergyUI()
+	if not energyDisplayState or energyDisplayState.WeaponName ~= activeWeapon then
+		EnergyFrame.Visible = false
+		return
+	end
+
+	local energy = GetDisplayedEnergy()
+	local capacity = math.max(1, energyDisplayState.Capacity)
+	local fraction = math.clamp(energy / capacity, 0, 1)
+	EnergyFrame.Bar.Fill.Size = UDim2.fromScale(fraction, 1)
+	EnergyFrame.Bar.Fill.BackgroundColor3 = energyDisplayState.Color
+	EnergyFrame.Value.Text = string.format("%d / %d", math.floor(energy + 0.5), math.floor(capacity + 0.5))
+	EnergyFrame.Visible = true
+end
+
+WeaponEnergyEvent.OnClientEvent:Connect(function(state)
+	if type(state) ~= "table" or state.WeaponName ~= activeWeapon then
+		return
+	end
+
+	energyDisplayState = {
+		WeaponName = state.WeaponName,
+		Energy = state.Energy or 0,
+		Capacity = state.Capacity or 100,
+		RecoveryRate = state.RecoveryRate or 0,
+		RecoveryDelayRemaining = state.RecoveryDelayRemaining or state.RecoveryDelay or 0,
+		Color = state.Color or Color3.fromRGB(55, 225, 255),
+		ReceivedAt = os.clock(),
+	}
+	UpdateEnergyUI()
+
+	if state.Depleted then
+		local originalColor = EnergyFrame.BackgroundColor3
+		EnergyFrame.BackgroundColor3 = Color3.fromRGB(125, 25, 25)
+		local warningTween = tweenService:Create(
+			EnergyFrame,
+			TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+			{BackgroundColor3 = originalColor}
+		)
+		warningTween:Play()
+	end
 end)
 
 function HasItem(itemId,amount)
@@ -171,16 +301,16 @@ end
 local lastFireTime = 0
 
 function UpdateUI(attackKey)
-	if (playerInventory == nil) then
-		return
-	end
-
 	if (activeWeapon == nil) then
 		return
 	end
 
 	local elapsedTime = os.clock() - lastFireTime
 	local weapon = weaponsDef[activeWeapon]
+	if weaponInfo.UsesAmmo(weapon) and playerInventory == nil then
+		return
+	end
+
 	local weaponspeed = weapon.WeaponSpeed
 	local fireRateTime = 10/weaponspeed
 
@@ -222,11 +352,16 @@ function UpdateUI(attackKey)
 
 
 
-	if (playerInventory["Items"][weapon.WeaponAmmo] and not weapon.Traits["UnlimitedAmmo"] and playerInventory["Items"][weapon.WeaponAmmo].Amount > 0) then
+	if weaponInfo.UsesAmmo(weapon)
+		and playerInventory["Items"][weapon.WeaponAmmo]
+		and playerInventory["Items"][weapon.WeaponAmmo].Amount > 0
+	then
 		playerInventory["Items"][weapon.WeaponAmmo].Amount = playerInventory["Items"][weapon.WeaponAmmo].Amount - 1
 	end
 
-	UpdateAmmoUI()
+	if weaponInfo.UsesAmmo(weapon) then
+		UpdateAmmoUI()
+	end
 end
 
 sendinv.OnClientEvent:Connect(function()
@@ -281,6 +416,10 @@ local function HandleInput(actionName, userInputState, input)
 	UpdateUI(input.KeyCode)
 
 	local ToolTransformedWorldCFrame = weaponInfo.GetFiringPosition(player,currentToolName)
+	if not ToolTransformedWorldCFrame then
+		warn("CombatHandler: no firing position for", currentToolName)
+		return
+	end
 
 	PlayerInputEvent:FireServer(input.KeyCode,hitPosition,ToolTransformedWorldCFrame)
 	LocalPlayerInputEvent:Fire(input.KeyCode,hitPosition)
@@ -328,6 +467,10 @@ local function HandleMouseInput(actionName, userInputState, input)
 	UpdateUI(Enum.KeyCode.R)
 
 	local ToolTransformedWorldCFrame = weaponInfo.GetFiringPosition(player,currentToolName)
+	if not ToolTransformedWorldCFrame then
+		warn("CombatHandler: no firing position for", currentToolName)
+		return
+	end
 
 	PlayerInputEvent:FireServer(Enum.KeyCode.R,hitPosition,ToolTransformedWorldCFrame)
 	LocalPlayerInputEvent:Fire(Enum.KeyCode.R,hitPosition)
@@ -385,10 +528,17 @@ CurrentHeldToolChangedEvent.OnClientEvent:Connect(function(toolName,slot)
 		game:GetService("ContextActionService"):BindAction("HandleInputR", HandleInput, false, Enum.KeyCode.R)
 		game:GetService("ContextActionService"):BindAction("HandleInputMouse", HandleMouseInput, false, Enum.UserInputType.MouseButton1)
 
-		if (weaponsDef[toolName].WeaponAmmo ~= nil and weaponsDef[toolName].WeaponAmmo ~= "NoAmmo") then
+		if weaponInfo.IsEnergyWeapon(weaponsDef[toolName]) then
+			AmmoFrame.Visible = false
+			EnergyFrame.Visible = true
+			energyDisplayState = nil
+			WeaponEnergyEvent:FireServer("Request", toolName)
+		elseif weaponInfo.UsesAmmo(weaponsDef[toolName]) then
+			EnergyFrame.Visible = false
 			UpdateInventory()
 		else
-			CombatFrame.Ammo.Visible = false
+			AmmoFrame.Visible = false
+			EnergyFrame.Visible = false
 		end
 
 		local weapon = weaponsDef[toolName]
@@ -408,6 +558,8 @@ CurrentHeldToolChangedEvent.OnClientEvent:Connect(function(toolName,slot)
 		game:GetService("ContextActionService"):UnbindAction("HandleInputMouse")
 
 		CombatGui.Enabled = false
+		EnergyFrame.Visible = false
+		energyDisplayState = nil
 
 		if (inputEvent ~= nil) then
 			inputEvent:Disconnect()
@@ -419,6 +571,7 @@ local step_counter = 0
 local timeChangeInterval = 1
 
 RunService.Heartbeat:Connect(function(step)
+	UpdateEnergyUI()
 
 	if (AttacksFrame["AttackF"].HideFrame.Size.Y.Scale == 1) then
 		AttacksFrame["AttackF"].HideFrame.Size = UDim2.new(1,0,0,0)
