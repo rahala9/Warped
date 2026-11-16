@@ -22,6 +22,9 @@ local enemiesModule = require(game.ReplicatedStorage:WaitForChild("SharedModules
 local enemyModule = require(game.ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("Enemy")) 
 local corpseModule = require(game.ServerScriptService:WaitForChild("SharedModules"):WaitForChild("Corpse")) 
 local itemsmodule = require(game.ReplicatedStorage:WaitForChild("InventorySystem"):WaitForChild("Items"))
+local DeathEffectConfig = require(
+	game.ReplicatedStorage:WaitForChild("DeathEffectSystem"):WaitForChild("Config")
+)
 
 --Assets
 local brokenCrate = ServerStorage:WaitForChild("SharedServerItems"):WaitForChild("BrokenCrate")
@@ -400,10 +403,39 @@ function enemyFunctions.EnemyRangedAttack(enemy,attack,EnemyTarget)
 	target.CurrentHealth = StatesFunctions.GetHealth(EnemyTarget) or 100
 	target.MaxHealth = AttributesFunctions.GetMaxHealth(EnemyTarget) or 100
 	
-	local damageData =  CombatFunctions.CalculateDamage(enemy, itemsmodule[enemiesModule[enemy.Name].Weapon], target, distance, isMoving, false)-- enemyFunctions.CalculateDamage(player,weapon,attack,directDamage)
+	local weaponName = enemiesModule[enemy.Name].Weapon
+	local weapon = itemsmodule[weaponName]
+	local damageData = CombatFunctions.CalculateDamage(enemy, weapon, target, distance, isMoving, false)-- enemyFunctions.CalculateDamage(player,weapon,attack,directDamage)
 
 	--TODO send all damage data to handle armor and shields
-	PlayerHitEvent:Fire(game:GetService("Players"):GetPlayerFromCharacter(EnemyTarget),damageData.HealthDamage,enemy.name)
+	local damageType = weapon and weapon.DamageType or nil
+	local deathContext
+	if damageType == "Laser" then
+		deathContext = {
+			Effect = "Disintegrate",
+			Chance = DeathEffectConfig.Effects.Disintegrate.LaserWeaponChance,
+			Source = enemy.name,
+			SourceType = "Weapon",
+			WeaponName = weaponName,
+			DamageType = damageType,
+		}
+	elseif damageType == "Electric" then
+		deathContext = {
+			Effect = "Electrocuted",
+			Chance = DeathEffectConfig.Effects.Electrocuted.ElectricWeaponChance,
+			Source = enemy.name,
+			SourceType = "Weapon",
+			WeaponName = weaponName,
+			DamageType = damageType,
+		}
+	end
+	PlayerHitEvent:Fire(
+		game:GetService("Players"):GetPlayerFromCharacter(EnemyTarget),
+		damageData.HealthDamage,
+		enemy.name,
+		damageType,
+		deathContext
+	)
 end
 
 function enemyFunctions.CalculateMeleeDamage(player, weapon, attack)
@@ -1049,15 +1081,16 @@ function enemyFunctions.HandleEnvironmentalTarget(player,instance,breakableMater
 	end
 
 	if (instance:GetAttribute("EnvironmentalTarget")) then
-
-		instance:SetAttribute("EnvironmentalTarget",false)
-
 		if (breakableMaterials) then
 
 			if (not breakableMaterials[instance:GetAttribute("Material")]) then
 				return
 			end
 		end
+
+		-- Consume the target only after confirming that this projectile can
+		-- break its material. Otherwise a rejected hit permanently disables it.
+		instance:SetAttribute("EnvironmentalTarget",false)
 
 
 		if (instance:GetAttribute("Explosive")) then

@@ -9,6 +9,8 @@ Desktop.ini
 *.swp
 *.swo
 *~
+__pycache__/
+*.py[cod]
 
 # Logs, temporary files, and local environment files
 *.log

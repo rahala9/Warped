@@ -280,6 +280,35 @@ function CheckRunning()
 	end
 end
 
+local function FindPushRoot(instance)
+	if not instance then
+		return nil
+	end
+
+	if instance:IsA("BasePart") and instance:GetAttribute("Pushable") then
+		return instance
+	end
+
+	local ancestor = instance
+	while ancestor do
+		if ancestor:IsA("Model") and ancestor.PrimaryPart
+			and ancestor.PrimaryPart:GetAttribute("Pushable")
+		then
+			return ancestor.PrimaryPart
+		end
+		ancestor = ancestor.Parent
+	end
+
+	if instance:IsA("BasePart") then
+		local assemblyRoot = instance.AssemblyRootPart
+		if assemblyRoot and assemblyRoot:GetAttribute("Pushable") then
+			return assemblyRoot
+		end
+	end
+
+	return nil
+end
+
 function CheckPushing()
 	if not table.find(GetKeysPressed(), Enum.KeyCode.E) then return end
 	local rayOrigin = HRP.Position
@@ -289,11 +318,14 @@ function CheckPushing()
 	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
 	local result = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
 	if result and result.Instance then
-		PlayerState.ChangeState(PlayerState.States.Pushing)
-		if (result.Instance:GetAttribute("Pushable")) then
-			PlayerState.LastPushedObject = result.Instance
-			ActionEvent:FireServer("PushObject",result.Instance,rayDirection.Unit)
+		local pushRoot = FindPushRoot(result.Instance)
+		if not pushRoot then
+			return
 		end
+
+		PlayerState.LastPushedObject = pushRoot
+		ActionEvent:FireServer("PushObject", pushRoot, rayDirection.Unit)
+		PlayerState.ChangeState(PlayerState.States.Pushing)
 	end
 end
 
@@ -301,6 +333,7 @@ function CheckDonePushing()
 	if not table.find(GetKeysPressed(), Enum.KeyCode.E) then
 		if (PlayerState.LastPushedObject) then
 			ActionEvent:FireServer("StopPushObject",PlayerState.LastPushedObject)
+			PlayerState.LastPushedObject = nil
 		end
 		PlayerState.ChangeState(PlayerState.States.Idle)
 		return
@@ -311,8 +344,12 @@ function CheckDonePushing()
 	raycastParams.FilterDescendantsInstances = {char}
 	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
 	local result = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
-	if (not result) or (not result.Instance) then
-		ActionEvent:FireServer("StopPushObject",PlayerState.LastPushedObject)
+	local pushRoot = result and result.Instance and FindPushRoot(result.Instance)
+	if not pushRoot or pushRoot ~= PlayerState.LastPushedObject then
+		if PlayerState.LastPushedObject then
+			ActionEvent:FireServer("StopPushObject",PlayerState.LastPushedObject)
+			PlayerState.LastPushedObject = nil
+		end
 		PlayerState.ChangeState(PlayerState.States.Idle)
 	end
 end
@@ -579,6 +616,7 @@ RunService.RenderStepped:Connect(function()
 		CheckCrouching()
 		CheckClimbing()
 		CheckClimbingIdle()
+		CheckPushing()
 	elseif (PlayerState.CurrentState == PlayerState.States.Walking) then
 		CheckIdle()
 		CheckRunning()
@@ -590,7 +628,6 @@ RunService.RenderStepped:Connect(function()
 		CheckCrouching()
 		CheckPushing()
 	elseif (PlayerState.CurrentState == PlayerState.States.Pushing) then
-		CheckIdle()
 		CheckJumping()
 		CheckFalling()
 		CheckClimbing()

@@ -1,8 +1,14 @@
 local PlayerHitEvent = game.ServerStorage:WaitForChild("SharedServerEvents"):WaitForChild("PlayerHit")	
 local ServerScriptService = game:GetService("ServerScriptService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+-- Initialize this before the broader data modules. Those modules can yield
+-- during startup; the death-effect remote must already exist for clients.
+local DeathEffectService = require(ServerScriptService:WaitForChild("DeathEffectSystem"):WaitForChild("DeathEffectService"))
+local DeathEffectConfig = require(ReplicatedStorage:WaitForChild("DeathEffectSystem"):WaitForChild("Config"))
+
 local StatesFunctions = require(ServerScriptService.Data.DataStatesFunctions)
 local AttributesFunctions = require(ServerScriptService.Data.DataAttributesFunctions)
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local clientPlayerHitEvent = ReplicatedStorage:WaitForChild("SharedRemotes"):WaitForChild("PlayerHit")
 local UpdateHealthEvent = ReplicatedStorage:WaitForChild("SharedRemotes"):WaitForChild("UpdateHealth")
@@ -12,6 +18,24 @@ local EffectsFunctions = require(ServerScriptService.Data.DataEffectsFunctions)
 local EffectsDef = require(ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("Effects"))
 local PlayerStateChangeEvent = ReplicatedStorage:WaitForChild("SharedRemotes"):WaitForChild("PlayerStateChange")
 local CurrentHeldToolChangedEvent = ReplicatedStorage:WaitForChild("SharedRemotes"):WaitForChild("CurrentHeldToolChanged")
+
+local function resolveDeathContext(enemyName, damageType, hitContext)
+	if typeof(hitContext) == "table" then
+		return hitContext
+	end
+	-- This fallback covers any current or future weapon path that correctly
+	-- reports its damage type but does not build a presentation context itself.
+	if damageType == "Electric" then
+		return {
+			Effect = "Electrocuted",
+			Chance = DeathEffectConfig.Effects.Electrocuted.ElectricWeaponChance,
+			Source = enemyName or "Electric weapon",
+			SourceType = "Weapon",
+			DamageType = damageType,
+		}
+	end
+	return nil
+end
 
 local lastHealthRequest = {}
 UpdateHealthEvent.OnServerEvent:Connect(function(player, action)
@@ -114,7 +138,7 @@ function EnableStates(player,enabled)
 end
 
 
-function onPlayerHit(player,damage,enemyName,damageType)
+function onPlayerHit(player,damage,enemyName,damageType,hitContext)
 	
 	if (player ~=nil and StatesFunctions.GetHealth(player) > 0) then
 		
@@ -125,10 +149,22 @@ function onPlayerHit(player,damage,enemyName,damageType)
 	end
 	
 	if (player ~=nil and not StatesFunctions.GetDead(player) and (StatesFunctions.GetHealth(player) <= 0)) then
-		
+		hitContext = resolveDeathContext(enemyName, damageType, hitContext)
+		-- Freeze the lethal-hit pose before any death state, animation, or physics
+		-- can tip the character over. Visual providers render this stable pose.
+		local character = player.Character
+		if character and character.PrimaryPart then
+			character.PrimaryPart.Anchored = true
+			character.PrimaryPart.AssemblyLinearVelocity = Vector3.zero
+			character.PrimaryPart.AssemblyAngularVelocity = Vector3.zero
+		end
+		local effectOk, effectError = pcall(DeathEffectService.RenderDeath, player, hitContext)
+		if not effectOk then
+			warn("[DeathEffectSystem] Visual effect failed without interrupting player death:", effectError)
+		end
+
 		--Player is now dead
 		StatesFunctions.SetDead(player,true) --TODO not needed?
-		
 		player.Character:SetAttribute("Dead", true)
 		
 		EffectsFunctions.RemoveAllEffects(player)
@@ -166,6 +202,9 @@ function onPlayerHit(player,damage,enemyName,damageType)
 		showDeathUIEvent:FireClient(player,true,deathReason)
 		
 		wait(3)	
+		if not player.Parent or not player.Character then
+			return
+		end
 		
 		StatesFunctions.SetHealth(player,AttributesFunctions.GetMaxHealth(player)*.75)
 		UpdateHealthEvent:FireClient(player, StatesFunctions.GetHealth(player), AttributesFunctions.GetMaxHealth(player))

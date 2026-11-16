@@ -6,6 +6,7 @@ local PlayerGui = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui
 --GUI
 local SharedGUI = PlayerGui:WaitForChild("SharedGUI")
 local GameplayGui = SharedGUI:WaitForChild("ToolbeltGui")
+local WatchGui = SharedGUI:WaitForChild("WatchGui")
 local ShipBuildGui = SharedGUI:WaitForChild("ShipBuildGui")
 local EmotesGui = SharedGUI:WaitForChild("EmotesGui")
 local HackingGui = SharedGUI:WaitForChild("HackingGui")
@@ -69,6 +70,7 @@ local function applyMode(mode)
 	
 	-- GUIs off
 	GameplayGui.Enabled = false
+	WatchGui.Enabled = false
 	ShipBuildGui.Enabled = false
 	EmotesGui.Enabled = false
 	HackingGui.Enabled = false
@@ -79,6 +81,7 @@ local function applyMode(mode)
 	if mode == Modes.Gameplay then
 		GameplayContext.Enabled = true
 		GameplayGui.Enabled = true
+		WatchGui.Enabled = true
 
 	elseif mode == Modes.ShipBuild then
 		ShipBuildContext.Enabled = true

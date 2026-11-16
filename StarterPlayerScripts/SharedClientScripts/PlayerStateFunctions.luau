@@ -736,6 +736,8 @@ function playerState.Init(player)
 	local sittingAnimation = Instance.new("Animation")
 	sittingAnimation.AnimationId = "http://www.roblox.com/asset/?id=82670185019554" --137665163986879" --17415741748" --13452747415" --13452731790" --13452698147" --13452678623" --13452624173" --13452569133"  --13452547135" --13452519995" --13452491336" --13434821879" --9881078485" --8951132198"
 	local sittingTrack = humanoid:LoadAnimation(sittingAnimation)
+	sittingTrack.Looped = true
+	sittingTrack.Priority = Enum.AnimationPriority.Action
 
 	local sittingForwardAnimation = Instance.new("Animation")
 	sittingForwardAnimation.AnimationId = "http://www.roblox.com/asset/?id=137665163986879" --17415741748" --13452747415" --13452731790" --13452698147" --13452678623" --13452624173" --13452569133"  --13452547135" --13452519995" --13452491336" --13434821879" --9881078485" --8951132198"
@@ -1201,11 +1203,12 @@ function playerState.ChangeState(state, keyCode, hitPosition)
 		return
 	end
 
-	-- release pushing ownership, etc.
-	if (playerState.LastPushedObject) then
+	-- Keep ownership while entering or remaining in Pushing. Release it only
+	-- when another state interrupts or finishes the push.
+	if playerState.LastPushedObject
+		and state.Name ~= playerState.States.Pushing.Name
+	then
 		ActionEvent:FireServer("ReleaseOwnership", playerState.LastPushedObject)
-		--playerState.LastPushedObject.Anchored = true
-		--playerState.LastPushedObject.VectorForce.Force = Vector3.zero
 		playerState.LastPushedObject = nil
 	end
 

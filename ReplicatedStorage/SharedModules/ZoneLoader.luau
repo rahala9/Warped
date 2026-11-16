@@ -7,6 +7,8 @@ local ZoneService = require(ReplicatedStorage.SharedModules.ZoneService)
 local ZoneRegistry = {}
 ZoneRegistry._zones = {}          -- [zoneKey] = zoneObject
 ZoneRegistry._listeners = {}      -- [zoneKey] = {callbacks...}
+ZoneRegistry._folders = {}        -- [zoneKey] = source Folder
+ZoneRegistry._typeListeners = {}  -- [ZoneType] = {callbacks...}
 
 -- Quest event integration (server only)
 local QuestService = nil
@@ -43,11 +45,32 @@ function ZoneRegistry:OnLoaded(zoneKey, callback)
 	end
 end
 
+function ZoneRegistry:OnTypeLoaded(zoneType, callback)
+	self._typeListeners[zoneType] = self._typeListeners[zoneType] or {}
+	table.insert(self._typeListeners[zoneType], callback)
+	for zoneKey, zone in pairs(self._zones) do
+		local folder = self._folders[zoneKey]
+		if folder and folder:GetAttribute("ZoneType") == zoneType then
+			callback(zone, folder)
+		end
+	end
+end
+
 local function fireLoaded(zoneKey, zone)
 	local list = ZoneRegistry._listeners[zoneKey]
 	if not list then return end
 	for _, cb in ipairs(list) do
 		cb(zone)
+	end
+end
+
+local function fireTypeLoaded(folder, zone)
+	local zoneType = folder:GetAttribute("ZoneType")
+	if typeof(zoneType) ~= "string" then return end
+	local list = ZoneRegistry._typeListeners[zoneType]
+	if not list then return end
+	for _, cb in ipairs(list) do
+		cb(zone, folder)
 	end
 end
 
@@ -99,6 +122,9 @@ local function wireQuestEvents(zone, zoneKey)
 end
 
 local function tryLoadFolder(folder)
+	-- Tagged zone templates may live in ReplicatedStorage. They do not have a
+	-- meaningful gameplay world position until a clone enters Workspace.
+	if not folder:IsDescendantOf(workspace) then return end
 	local zoneKey = getZoneKey(folder)
 	if ZoneRegistry._zones[zoneKey] then return end
 
@@ -112,11 +138,13 @@ local function tryLoadFolder(folder)
 	end
 
 	ZoneRegistry._zones[zoneKey] = zoneOrErr
+	ZoneRegistry._folders[zoneKey] = folder
 
 	-- Wire up quest events for this zone
 	wireQuestEvents(zoneOrErr, zoneKey)
 
 	fireLoaded(zoneKey, zoneOrErr)
+	fireTypeLoaded(folder, zoneOrErr)
 
 	if RunService:IsServer() then
 		print("[Server] Loaded zone:", zoneKey)
@@ -131,6 +159,7 @@ local function unloadFolder(folder)
 	if not zone then return end
 	if zone.Destroy then zone:Destroy() end
 	ZoneRegistry._zones[zoneKey] = nil
+	ZoneRegistry._folders[zoneKey] = nil
 	if RunService:IsServer() then
 		print("[Server] Unloaded zone:", zoneKey)
 	else
@@ -144,5 +173,19 @@ for _, folder in ipairs(CollectionService:GetTagged("ZoneFolder")) do
 end
 CollectionService:GetInstanceAddedSignal("ZoneFolder"):Connect(tryLoadFolder)
 CollectionService:GetInstanceRemovedSignal("ZoneFolder"):Connect(unloadFolder)
+
+-- A tagged folder can be cloned while unparented, causing CollectionService's
+-- added signal to fire before it reaches Workspace. These ancestry signals
+-- make template clones reliable regardless of creation order.
+workspace.DescendantAdded:Connect(function(instance)
+	if CollectionService:HasTag(instance, "ZoneFolder") then
+		tryLoadFolder(instance)
+	end
+end)
+workspace.DescendantRemoving:Connect(function(instance)
+	if CollectionService:HasTag(instance, "ZoneFolder") then
+		unloadFolder(instance)
+	end
+end)
 
 return ZoneRegistry

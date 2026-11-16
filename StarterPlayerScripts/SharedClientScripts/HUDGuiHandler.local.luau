@@ -37,19 +37,23 @@ local ToolbeltGui = SharedGUI:WaitForChild("ToolbeltGui")
 ----------------------------------------------------------------
 -- Gameplay health bar
 ----------------------------------------------------------------
+local HEALTH_BAR_Z_INDEX = 98
+local HEALTH_BAR_POSITION = UDim2.new(0, 79, 1, -123)
+local HEALTH_BAR_SIZE = UDim2.fromOffset(117, 14)
 local HealthBar = ToolbeltGui:FindFirstChild("CustomHealthBar")
 if not HealthBar then
 	HealthBar = Instance.new("Frame")
 	HealthBar.Name = "CustomHealthBar"
 	HealthBar.AnchorPoint = Vector2.new(0, 1)
-	-- Fits the black row immediately to the right of the red health cross.
-	HealthBar.Position = UDim2.new(0, 79, 1, -123)
-	HealthBar.Size = UDim2.fromOffset(121, 17)
+	-- Fits inside the black inset immediately to the right of the health cross,
+	-- leaving the cream frame and orange right-side marker unobstructed.
+	HealthBar.Position = HEALTH_BAR_POSITION
+	HealthBar.Size = HEALTH_BAR_SIZE
 	HealthBar.BackgroundColor3 = Color3.fromRGB(10, 10, 12)
 	HealthBar.BackgroundTransparency = 0.08
 	HealthBar.BorderSizePixel = 0
 	HealthBar.ClipsDescendants = true
-	HealthBar.ZIndex = 40
+	HealthBar.ZIndex = HEALTH_BAR_Z_INDEX
 	HealthBar.Parent = ToolbeltGui
 
 	local fill = Instance.new("Frame")
@@ -57,7 +61,7 @@ if not HealthBar then
 	fill.Size = UDim2.fromScale(1, 1)
 	fill.BackgroundColor3 = Color3.fromRGB(205, 28, 28)
 	fill.BorderSizePixel = 0
-	fill.ZIndex = 41
+	fill.ZIndex = HEALTH_BAR_Z_INDEX + 1
 	fill.Parent = HealthBar
 
 	local gradient = Instance.new("UIGradient")
@@ -78,9 +82,20 @@ if not HealthBar then
 	value.TextSize = 10
 	value.TextStrokeColor3 = Color3.fromRGB(35, 0, 0)
 	value.TextStrokeTransparency = 0.25
-	value.ZIndex = 42
+	value.ZIndex = HEALTH_BAR_Z_INDEX + 2
 	value.Parent = HealthBar
 end
+
+-- LayoutOrder only affects layout containers; ZIndex controls draw order inside
+-- this ScreenGui. Reapply these values in case the bar already existed.
+HealthBar.Visible = true
+HealthBar.ZIndex = HEALTH_BAR_Z_INDEX
+HealthBar.Position = HEALTH_BAR_POSITION
+HealthBar.Size = HEALTH_BAR_SIZE
+HealthBar.Fill.Visible = true
+HealthBar.Fill.ZIndex = HEALTH_BAR_Z_INDEX + 1
+HealthBar.Value.Visible = true
+HealthBar.Value.ZIndex = HEALTH_BAR_Z_INDEX + 2
 
 local healthTween = nil
 local currentHealth = 0

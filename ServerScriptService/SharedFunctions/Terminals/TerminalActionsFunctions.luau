@@ -86,8 +86,12 @@ function TerminalActions.ToggleLaserDoor(config, player)
 	local laserBeamWall = laserDoor:FindFirstChild("LaserBeamWall")
 
 	if not laserBeamWall then return end
+	local killBlock = laserBeamWall:FindFirstChild("Kill")
 	
 	laserDoor:SetAttribute("Enabled", false)
+	if killBlock and killBlock:IsA("BasePart") then
+		killBlock.CanTouch = false
+	end
 
 	-- Disable lasers
 	for _, laserBeam in pairs(laserBeamWall:GetChildren()) do
@@ -106,6 +110,9 @@ function TerminalActions.ToggleLaserDoor(config, player)
 			end
 		end
 
+		if killBlock and killBlock.Parent then
+			killBlock.CanTouch = true
+		end
 		laserDoor:SetAttribute("Enabled", true)
 	end)
 end

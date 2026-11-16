@@ -25,7 +25,7 @@ local functions = {}
 --------------------------------------------------------------------
 functions.FlightForceMode = "LinearVelocity" -- "BodyVelocity"
 
-functions.TranslationMode = "Planar" -- "Planar" | "FullCamera"
+functions.TranslationMode = "FullCamera" -- "Planar" | "FullCamera"
 functions.VerticalMode = "WorldUp"   -- "WorldUp" | "CameraUp"
 
 functions.MaxBaseSpeed = 0		--based on engine installed on ship
@@ -111,6 +111,21 @@ functions.ZoomSmooth = 8  -- smoothing factor
 -- Input smoothing
 functions.InputSmoothing = 18
 
+-- Parked-ship launch sequence
+functions.LaunchHeight = 12
+functions.LaunchSpeed = 8
+functions.ParkedGroundClearance = 8
+functions.LandingDetectionHeight = 20
+functions.LandingDescentSpeed = 4
+functions.LandingStopClearance = 0.15
+functions.LandingMaxHorizontalSpeed = 12
+functions.LandingMaxVerticalSpeed = 12
+functions.LandingMaxTiltDegrees = 25
+functions.LandingMaxSlopeDegrees = 8
+functions.LandingLevelToleranceDegrees = 2
+functions.LandingTimeout = 10
+functions.LandingStallTimeout = 2
+
 --------------------------------------------------------------------
 -- INTERNAL STATE
 --------------------------------------------------------------------
@@ -135,6 +150,15 @@ functions._bank = 0
 -- ship attachment
 functions._ship = nil :: Model?
 functions._shipWeld = nil :: WeldConstraint?
+functions.LaunchState = "Flying" -- "AwaitingLaunch" | "Launching" | "Flying" | "Landing" | "Landed"
+functions._launchStartY = nil :: number?
+functions.LandingAvailable = false
+functions.LandingBlockedReason = nil :: string?
+functions.LandingMessage = nil :: string?
+functions.LandingMessageUntil = 0
+functions._landingStartedAt = nil :: number?
+functions._lastLandingClearance = nil :: number?
+functions._landingStallTime = 0
 
 -- camera
 functions._camEnabled = false
@@ -328,6 +352,195 @@ local function detachShip()
 		functions._shipWeld = nil
 	end
 	functions._ship = nil
+end
+
+local function getHorizontalOrientation(cframe: CFrame): CFrame
+	local forward = cframe.LookVector
+	local flatForward = Vector3.new(forward.X, 0, forward.Z)
+	if flatForward.Magnitude < 0.001 then
+		local right = cframe.RightVector
+		flatForward = Vector3.new(-right.Z, 0, right.X)
+	end
+	return CFrame.lookAt(Vector3.zero, flatForward.Unit, Vector3.yAxis)
+end
+
+local function getPartBottomY(part: BasePart): number
+	local cframe = part.CFrame
+	local halfWorldHeight = math.abs(cframe.RightVector.Y) * part.Size.X * 0.5
+		+ math.abs(cframe.UpVector.Y) * part.Size.Y * 0.5
+		+ math.abs(cframe.LookVector.Y) * part.Size.Z * 0.5
+	return part.Position.Y - halfWorldHeight
+end
+
+local function getLandingReferenceY(ship: Model): number
+	-- Builders can place one or more LandingPoint attachments at the contact
+	-- surface of the landing gear for exact clearance on unusual ship shapes.
+	local attachmentY = nil
+	for _, descendant in ship:GetDescendants() do
+		if descendant:IsA("Attachment") and descendant.Name == "LandingPoint" then
+			attachmentY = math.min(attachmentY or math.huge, descendant.WorldPosition.Y)
+		end
+	end
+	if attachmentY then
+		return attachmentY
+	end
+
+	-- GetBoundingBox includes invisible, non-colliding helper parts. Use the
+	-- actual collision geometry so visible landing gear reaches the surface.
+	local lowestCollidableY = nil
+	for _, descendant in ship:GetDescendants() do
+		if descendant:IsA("BasePart") and descendant.CanCollide then
+			local bottomY = getPartBottomY(descendant)
+			lowestCollidableY = math.min(lowestCollidableY or math.huge, bottomY)
+		end
+	end
+	if lowestCollidableY then
+		return lowestCollidableY
+	end
+
+	local boundingCFrame, boundingSize = ship:GetBoundingBox()
+	return boundingCFrame.Position.Y - boundingSize.Y * 0.5
+end
+
+local function getGroundBelowShip(ship: Model, clearance: number, character: Model?)
+	local boundingCFrame = ship:GetBoundingBox()
+	local landingReferenceY = getLandingReferenceY(ship)
+	local rayOrigin = boundingCFrame.Position
+	local rayLength = math.max(1, rayOrigin.Y - landingReferenceY) + clearance
+	local raycastParams = RaycastParams.new()
+	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+	raycastParams.FilterDescendantsInstances = character and {ship, character} or {ship}
+
+	local result = workspace:Raycast(
+		rayOrigin,
+		Vector3.new(0, -rayLength, 0),
+		raycastParams
+	)
+	local bottomClearance = result and math.max(0, landingReferenceY - result.Position.Y) or nil
+	return result, bottomClearance
+
+end
+
+
+local function isShipParked(ship: Model, character: Model?): boolean
+	local parkedAttribute = ship:GetAttribute("Parked")
+	if typeof(parkedAttribute) == "boolean" then
+		return parkedAttribute
+	end
+
+	-- Existing ships do not need a Parked attribute. Treat a ship as parked
+	-- when the ground is just below its landing reference.
+	local result = getGroundBelowShip(ship, functions.ParkedGroundClearance, character)
+	return result ~= nil
+end
+
+local function applyControlVelocity(velocity: Vector3, boosting: boolean?)
+	functions._targetVel = velocity
+
+	if functions.FlightForceMode == "BodyVelocity" then
+		if functions.BV then
+			functions.BV.velocity = velocity
+		end
+	elseif functions.LV then
+		functions.LV.VectorVelocity = velocity
+		functions.LV.MaxForce = boosting and functions.LVMaxForceBoost or functions.LVMaxForce
+	end
+end
+
+function functions.AreFlightControlsEnabled(): boolean
+	return PlayerState.IsFlying and functions.LaunchState == "Flying"
+end
+
+function functions.BeginLaunch()
+	if functions.LaunchState ~= "AwaitingLaunch" and functions.LaunchState ~= "Landed" then
+		return
+	end
+
+	local ship = functions._ship
+	if not ship or not ship.PrimaryPart then
+		return
+	end
+
+	functions._launchStartY = ship.PrimaryPart.Position.Y
+	functions.LaunchState = "Launching"
+	functions.LandingAvailable = false
+	functions._targetVel = Vector3.zero
+	print("[Flight] Launching parked ship")
+end
+
+local function refreshLandingAvailability()
+	functions.LandingAvailable = false
+	functions.LandingBlockedReason = nil
+
+	local ship = functions._ship
+	local primary = ship and ship.PrimaryPart
+	if functions.LaunchState ~= "Flying" or not ship or not primary then
+		return
+	end
+
+	local player = game:GetService("Players").LocalPlayer
+	local result, clearance = getGroundBelowShip(ship, functions.LandingDetectionHeight, player.Character)
+	if not result or not clearance then
+		return
+	end
+
+	local velocity = primary.AssemblyLinearVelocity
+	local horizontalSpeed = Vector3.new(velocity.X, 0, velocity.Z).Magnitude
+	local uprightDot = math.clamp(primary.CFrame.UpVector:Dot(Vector3.yAxis), -1, 1)
+	local surfaceDot = math.clamp(result.Normal:Dot(Vector3.yAxis), -1, 1)
+	local tiltDegrees = math.deg(math.acos(uprightDot))
+	local slopeDegrees = math.deg(math.acos(surfaceDot))
+
+	if slopeDegrees > functions.LandingMaxSlopeDegrees then
+		functions.LandingBlockedReason = "SURFACE TOO STEEP"
+	elseif horizontalSpeed > functions.LandingMaxHorizontalSpeed
+		or math.abs(velocity.Y) > functions.LandingMaxVerticalSpeed
+	then
+		functions.LandingBlockedReason = "SLOW DOWN TO LAND"
+	elseif tiltDegrees > functions.LandingMaxTiltDegrees then
+		functions.LandingBlockedReason = "LEVEL SHIP TO LAND"
+	else
+		functions.LandingAvailable = true
+	end
+end
+
+function functions.BeginLanding()
+	if functions.LaunchState ~= "Flying" or not functions.LandingAvailable then
+		return
+	end
+
+	functions.LaunchState = "Landing"
+	functions.LandingAvailable = false
+	functions.LandingBlockedReason = nil
+	functions._braking = false
+	functions._throttle = 0
+	functions._inF, functions._inS, functions._inU = 0, 0, 0
+	functions._landingStartedAt = os.clock()
+	functions._lastLandingClearance = nil
+	functions._landingStallTime = 0
+	functions.LandingMessage = nil
+	print("[Flight] Landing assist engaged")
+end
+
+local function abortLanding(reason: string)
+	functions.LaunchState = "Flying"
+	functions.LandingAvailable = false
+	functions._landingStartedAt = nil
+	functions._lastLandingClearance = nil
+	functions._landingStallTime = 0
+	functions.LandingMessage = reason
+	functions.LandingMessageUntil = os.clock() + 2.5
+	applyControlVelocity(Vector3.zero, true)
+	warn("[Flight] Landing assist aborted: " .. reason)
+end
+
+function functions.CanExitShip(): boolean
+	if functions.LaunchState == "Landed" then
+		return true
+	end
+
+	local player = game:GetService("Players").LocalPlayer
+	return functions.LaunchState == "Flying" and EVAFunctions.CanEVA(player)
 end
 
 --------------------------------------------------------------------
@@ -642,12 +855,10 @@ local function computeDesiredVelocity(speed: number): Vector3
 	local s = functions._inS or 0
 	local u = functions._inU or 0
 
-	local worldUp = Vector3.yAxis
-
 	local dir =
 		(forward * f) +
 		(right   * s) +
-		(worldUp * (u * functions.VerticalSpeedMult))
+		(up      * (u * functions.VerticalSpeedMult))
 
 	local mag = dir.Magnitude
 	if mag < 1e-4 then
@@ -692,6 +903,37 @@ function functions.ToggleBrake()
 	functions._braking = not functions._braking
 end
 
+local function getShipExitCFrame(ship: Model, character: Model, humanoid: Humanoid, HRP: BasePart): CFrame
+	local exitPoint = ship:FindFirstChild("ExitPoint", true)
+	if exitPoint and exitPoint:IsA("Attachment") then
+		return exitPoint.WorldCFrame
+	end
+
+	local boundingCFrame, boundingSize = ship:GetBoundingBox()
+	local sideDistance = boundingSize.X * 0.5 + 4
+	local sidePosition = (boundingCFrame * CFrame.new(sideDistance, 0, 0)).Position
+
+	-- Put the character's feet on the ground beside the ship when possible.
+	local raycastParams = RaycastParams.new()
+	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+	raycastParams.FilterDescendantsInstances = {ship, character}
+	local rayOrigin = sidePosition + Vector3.new(0, boundingSize.Y + 10, 0)
+	local result = workspace:Raycast(rayOrigin, Vector3.new(0, -(boundingSize.Y + 110), 0), raycastParams)
+	if result then
+		sidePosition = Vector3.new(
+			sidePosition.X,
+			result.Position.Y + humanoid.HipHeight + HRP.Size.Y * 0.5,
+			sidePosition.Z
+		)
+	end
+
+	local facePosition = Vector3.new(boundingCFrame.Position.X, sidePosition.Y, boundingCFrame.Position.Z)
+	if (facePosition - sidePosition).Magnitude < 0.001 then
+		return CFrame.new(sidePosition)
+	end
+	return CFrame.lookAt(sidePosition, facePosition, Vector3.yAxis)
+end
+
 function functions.ExitShip()
 	if functions._exitDebounce then
 		print("[ExitShip] Debounced - ignoring rapid call")
@@ -704,6 +946,12 @@ function functions.ExitShip()
 
 	if not PlayerState.IsFlying then
 		print("[ExitShip] Not flying - ignoring exit request")
+		functions._exitDebounce = false
+		return
+	end
+
+	if not functions.CanExitShip() then
+		warn("[ExitShip] Exit blocked: land the ship first")
 		functions._exitDebounce = false
 		return
 	end
@@ -724,8 +972,8 @@ function functions.ExitShip()
 
 	local canEVA = EVAFunctions.CanEVA(player)
 
-	local nearGround = false
-	if not canEVA then
+	local nearGround = functions.LaunchState == "Landed"
+	if not canEVA and not nearGround then
 		local rayOrigin = HRP.Position
 		local rayDirection = Vector3.new(0, -100, 0)
 
@@ -734,8 +982,12 @@ function functions.ExitShip()
 		raycastParams.FilterDescendantsInstances = {char, functions._ship}
 
 		local rayResult = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
-		nearGround = rayResult and (rayResult.Distance < 10)
-		print("TEST Distance from ground:", rayResult.Distance)
+		nearGround = rayResult ~= nil and rayResult.Distance < 10
+		if rayResult then
+			print("[ExitShip] Distance from ground:", rayResult.Distance)
+		else
+			print("[ExitShip] No ground detected below ship")
+		end
 		if not nearGround then
 			warn("[ExitShip] Cannot exit - not in space and not near ground!")
 			print("[ExitShip] You must land the ship first!")
@@ -748,20 +1000,21 @@ function functions.ExitShip()
 
 	print("[ExitShip] Exiting ship", canEVA and "(entering EVA)" or "(landing on ground)")
 
-	local exitOffset = Vector3.new(5, 2, 0)
-	if functions._ship and functions._ship.PrimaryPart then
-		local shipCF = functions._ship.PrimaryPart.CFrame
-		local exitPos = (shipCF * CFrame.new(exitOffset)).Position
-		local _, yaw, _ = shipCF:ToEulerAnglesYXZ()
-		HRP.CFrame = CFrame.new(exitPos) * CFrame.Angles(0, yaw, 0)
-		HRP.AssemblyLinearVelocity = Vector3.zero
-		HRP.AssemblyAngularVelocity = Vector3.zero
-	end
+	local exitingShip = functions._ship
+	local exitCFrame = exitingShip and getShipExitCFrame(exitingShip, char, humanoid, HRP) or HRP.CFrame
+
+	-- Break the client weld before moving the character. Moving HRP while it is
+	-- still welded moves the entire ship and can leave the character trapped in
+	-- its collision geometry.
+	detachShip()
+	HRP.CFrame = exitCFrame
+	HRP.AssemblyLinearVelocity = Vector3.zero
+	HRP.AssemblyAngularVelocity = Vector3.zero
 
 	local Remotes = ReplicatedStorage:WaitForChild("SharedRemotes")
 	local ExitShip = Remotes:FindFirstChild("ExitShip")
 	if ExitShip then
-		ExitShip:FireServer(functions._ship)
+		ExitShip:FireServer(exitingShip)
 	end
 
 	functions.StopFlying(humanoid, HRP)
@@ -1022,6 +1275,7 @@ function functions.StartFlying(humanoid: Humanoid, HRP: BasePart, pilotedShip: M
 	humanoid.AutoRotate = false
 
 	local char = humanoid.Parent
+	local startsParked = pilotedShip ~= nil and isShipParked(pilotedShip, char)
 	if char then
 		local runningSound = char:FindFirstChild("HumanoidRootPart"):FindFirstChild("Running", true)
 		if runningSound and runningSound:IsA("Sound") then
@@ -1053,6 +1307,20 @@ function functions.StartFlying(humanoid: Humanoid, HRP: BasePart, pilotedShip: M
 
 	functions.FlightControlForce(true, HRP)
 	functions.FlightStabilityForce(true, HRP)
+	if functions.AO then
+		-- A parked ship should retain its authored orientation until launch ends.
+		functions.AO.CFrame = HRP.CFrame.Rotation
+	end
+
+	functions._launchStartY = nil
+	functions.LaunchState = startsParked and "AwaitingLaunch" or "Flying"
+	functions.LandingAvailable = false
+	functions.LandingBlockedReason = nil
+	functions.LandingMessage = nil
+	functions.LandingMessageUntil = 0
+	functions._landingStartedAt = nil
+	functions._lastLandingClearance = nil
+	functions._landingStallTime = 0
 
 	if functions.UseScriptableChaseCamera then
 		enableChaseCamera()
@@ -1065,14 +1333,25 @@ function functions.StartFlying(humanoid: Humanoid, HRP: BasePart, pilotedShip: M
 	print("[StartFlying] Cleared old input connections")
 
 	table.insert(functions._inputConnections, UserInputService.InputBegan:Connect(function(input, gp)
-		if gp then return end
 		if not PlayerState.IsFlying then return end
+		if input.KeyCode == Enum.KeyCode.Space
+			and (functions.LaunchState == "AwaitingLaunch" or functions.LaunchState == "Landed")
+		then
+			functions.BeginLaunch()
+			return
+		end
+		if input.KeyCode == Enum.KeyCode.L and functions.LaunchState == "Flying" then
+			functions.BeginLanding()
+			return
+		end
+		if gp or not functions.AreFlightControlsEnabled() then return end
 		if input.UserInputType == Enum.UserInputType.MouseButton2 then
 			beginOrbit(HRP)
 		end
 	end))
 
 	table.insert(functions._inputConnections, UserInputService.InputEnded:Connect(function(input, gp)
+		if not functions.AreFlightControlsEnabled() then return end
 		if input.UserInputType == Enum.UserInputType.MouseButton2 then
 			endOrbit()
 		end
@@ -1080,7 +1359,7 @@ function functions.StartFlying(humanoid: Humanoid, HRP: BasePart, pilotedShip: M
 
 	table.insert(functions._inputConnections, UserInputService.InputChanged:Connect(function(input, gp)
 		if gp then return end
-		if not PlayerState.IsFlying then return end
+		if not functions.AreFlightControlsEnabled() then return end
 		if input.UserInputType == Enum.UserInputType.MouseWheel then
 			handleZoom(input)
 		end
@@ -1130,6 +1409,15 @@ function functions.StopFlying(humanoid: Humanoid, HRP: BasePart)
 	functions._inputConnections = {}
 
 	PlayerState.IsFlying = false
+	functions.LaunchState = "Flying"
+	functions._launchStartY = nil
+	functions.LandingAvailable = false
+	functions.LandingBlockedReason = nil
+	functions.LandingMessage = nil
+	functions.LandingMessageUntil = 0
+	functions._landingStartedAt = nil
+	functions._lastLandingClearance = nil
+	functions._landingStallTime = 0
 
 	functions._throttle = 0
 
@@ -1161,6 +1449,110 @@ function functions.FlightHeartbeat(dt: number, humanoid: Humanoid, HRP: BasePart
 			return
 		end
 	end
+
+	if functions.LaunchState == "Landed" then
+		applyControlVelocity(Vector3.zero, true)
+		return
+	elseif functions.LaunchState == "Landing" then
+		local ship = functions._ship
+		local primary = ship and ship.PrimaryPart
+		if not ship or not primary then
+			functions.LaunchState = "Flying"
+			return
+		end
+
+		local player = game:GetService("Players").LocalPlayer
+		local result, clearance = getGroundBelowShip(
+			ship,
+			functions.LandingDetectionHeight + 5,
+			player.Character
+		)
+		if not result or not clearance then
+			abortLanding("LANDING SURFACE LOST")
+			return
+		end
+
+		if functions._landingStartedAt
+			and os.clock() - functions._landingStartedAt > functions.LandingTimeout
+		then
+			abortLanding("LANDING TIMED OUT")
+			return
+		end
+
+		local surfaceDot = math.clamp(result.Normal:Dot(Vector3.yAxis), -1, 1)
+		local slopeDegrees = math.deg(math.acos(surfaceDot))
+		if slopeDegrees > functions.LandingMaxSlopeDegrees then
+			abortLanding("SURFACE TOO STEEP")
+			return
+		end
+
+		-- Remove pitch and bank from the actual controller root. The ship is
+		-- welded to this root, so using arbitrary PrimaryPart axes here can add
+		-- a large visual tilt on models whose PrimaryPart is authored rotated.
+		local desiredControllerOrientation = getHorizontalOrientation(HRP.CFrame)
+		if functions.AO then
+			functions.AO.CFrame = desiredControllerOrientation
+		end
+
+		local orientationError = desiredControllerOrientation:ToObjectSpace(HRP.CFrame.Rotation)
+		local _, errorRadians = orientationError:ToAxisAngle()
+		if math.deg(math.abs(errorRadians)) > functions.LandingLevelToleranceDegrees then
+			-- Do not let one landing skid touch first; finish leveling before descent.
+			applyControlVelocity(Vector3.zero, true)
+			return
+		end
+
+		if clearance <= functions.LandingStopClearance then
+			applyControlVelocity(Vector3.zero, true)
+			primary.AssemblyLinearVelocity = Vector3.zero
+			primary.AssemblyAngularVelocity = Vector3.zero
+			functions.LaunchState = "Landed"
+			functions._landingStartedAt = nil
+			functions._lastLandingClearance = nil
+			functions._landingStallTime = 0
+			print("[Flight] Landing complete; exit enabled")
+		else
+			local lastClearance = functions._lastLandingClearance
+			if lastClearance and clearance >= lastClearance - 0.02 then
+				functions._landingStallTime += dt
+			else
+				functions._landingStallTime = 0
+			end
+			functions._lastLandingClearance = clearance
+
+			if functions._landingStallTime >= functions.LandingStallTimeout then
+				abortLanding("DESCENT BLOCKED")
+				return
+			end
+			applyControlVelocity(Vector3.yAxis * -functions.LandingDescentSpeed, true)
+		end
+		return
+	elseif functions.LaunchState == "AwaitingLaunch" then
+		applyControlVelocity(Vector3.zero, true)
+		return
+	elseif functions.LaunchState == "Launching" then
+		local ship = functions._ship
+		local primary = ship and ship.PrimaryPart
+		local startY = functions._launchStartY
+		if not primary or not startY then
+			functions.LaunchState = "Flying"
+			functions._launchStartY = nil
+			applyControlVelocity(Vector3.zero, true)
+			return
+		end
+
+		if primary.Position.Y - startY >= functions.LaunchHeight then
+			functions.LaunchState = "Flying"
+			functions._launchStartY = nil
+			applyControlVelocity(Vector3.zero, true)
+			print("[Flight] Launch complete; flight controls enabled")
+		else
+			applyControlVelocity(Vector3.yAxis * functions.LaunchSpeed, true)
+		end
+		return
+	end
+
+	refreshLandingAvailability()
 
 	-- auto-clear target if it goes out of sensor range or is destroyed
 	if functions._currentTarget then
@@ -1244,16 +1636,7 @@ function functions.FlightHeartbeat(dt: number, humanoid: Humanoid, HRP: BasePart
 		end
 	end
 
-	if functions.FlightForceMode == "BodyVelocity" then
-		if functions.BV then
-			functions.BV.velocity = functions._targetVel
-		end
-	else
-		if functions.LV then
-			functions.LV.VectorVelocity = functions._targetVel
-			functions.LV.MaxForce = boosting and functions.LVMaxForceBoost or functions.LVMaxForce
-		end
-	end
+	applyControlVelocity(functions._targetVel, boosting)
 
 	updateRotationTarget(HRP, dt)
 end

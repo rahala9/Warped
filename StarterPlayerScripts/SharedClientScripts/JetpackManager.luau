@@ -79,6 +79,7 @@ local spaceWasReleased    = false
 local jetpackFuel         = JETPACK_MAX_FUEL
 local jetpackFuelDepleted = false
 local jetpackEquipped     = false
+local suspendedForShip    = false
 
 currentJetpackModelName = nil
 
@@ -285,6 +286,7 @@ local function ResetState()
 	spaceWasReleased    = false
 	jetpackFuel         = JETPACK_MAX_FUEL
 	jetpackFuelDepleted = false
+	suspendedForShip    = false
 end
 
 -- -------------------------------------------------------
@@ -313,12 +315,50 @@ local function ToggleJetpack()
 	JetR.Fire.Enabled = not JetR.Fire.Enabled
 end
 
+local function StopJetpackForShip()
+	isJetpacking = false
+	wasJetpacking = false
+	hasLeftGround = false
+	spaceWasReleased = false
+
+	if alignOrientation then
+		alignOrientation.Enabled = false
+		alignOrientation.CFrame = CFrame.new()
+	end
+
+	local jetpackModel = currentJetpackModelName and char:FindFirstChild(currentJetpackModelName)
+	if jetpackModel then
+		for _, jetName in {"JetL", "JetR"} do
+			local jet = jetpackModel:FindFirstChild(jetName)
+			local fire = jet and jet:FindFirstChild("Fire")
+			if fire then
+				fire.Enabled = false
+			end
+		end
+	end
+
+	JetpackSoundFX:Stop()
+end
+
 -- -------------------------------------------------------
 -- Public: Update — call every Heartbeat frame from StateHandler
 -- -------------------------------------------------------
 function JetpackManager.Update(dt)
 	if not char or not humanoid or not HRP or not alignOrientation then return end
 	if not jetpackEquipped then return end
+
+	local inPilotedShip = PlayerState.CurrentState == PlayerState.States.Flying
+	if inPilotedShip then
+		if not suspendedForShip then
+			suspendedForShip = true
+			StopJetpackForShip()
+			HideHUD()
+		end
+		return
+	elseif suspendedForShip then
+		suspendedForShip = false
+		ShowHUD()
+	end
 
 	local spaceDown = UIS:IsKeyDown(Enum.KeyCode.Space)
 

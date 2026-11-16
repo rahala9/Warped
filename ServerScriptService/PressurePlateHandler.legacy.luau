@@ -106,6 +106,7 @@ Zones:OnLoaded("PressurePlate1", function(zone)
 	end
 	
 	local function ToggleLaserWall()
+		laserDoor1:SetAttribute("Enabled", not desiredPressed)
 		for _,laserBeam in pairs(laserBeamWall:GetChildren()) do
 			if laserBeam:IsA("Model") and laserBeam.Name == "LaserBeam" then
 				laserBeam.PrimaryPart.Beam.Enabled = not desiredPressed
@@ -212,6 +213,7 @@ Zones:OnLoaded("PressurePlate2", function(zone)
 
 
 	local function ToggleLaserWall()
+		laserDoor1:SetAttribute("Enabled", not desiredPressed)
 		for _,laserBeam in pairs(laserBeamWall:GetChildren()) do
 			if laserBeam:IsA("Model") and laserBeam.Name == "LaserBeam" then
 				laserBeam.PrimaryPart.Beam.Enabled = not desiredPressed

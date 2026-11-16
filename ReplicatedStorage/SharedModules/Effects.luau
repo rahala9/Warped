@@ -362,7 +362,7 @@ local effects = {
 
 	["ElectricShock"] = {
 		Name = "ElectricShock",
-		Description = "Nobody will talk to you while you smell like that!",
+		Description = "High-voltage current is coursing through your suit.",
 		Effect = {Type="Health",Action="DOT",Amount=50,TimeInEffect=10,TimeStarted=0,CurrentEffectTime=10,VFX="Electricity"},
 		Source = nil,
 		Deaths = {"Zapped","Regular little Nicky Tesla","Shocked"},

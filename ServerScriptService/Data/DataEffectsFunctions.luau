@@ -23,6 +23,12 @@ local ProgressFunctions = require(ServerScriptService.Data.DataProgressFunctions
 local AttributesFunctions = require(ServerScriptService.Data.DataAttributesFunctions)
 local CharacterFunctions = require(ServerScriptService.Data.DataCharacterFunctions)
 local EnemyFunctions = require(ServerScriptService.SharedFunctions.EnemyFunctions)
+local EffectVisualService = require(
+	ServerScriptService:WaitForChild("EffectVisualSystem"):WaitForChild("EffectVisualService")
+)
+local DeathEffectConfig = require(
+	ReplicatedStorage:WaitForChild("DeathEffectSystem"):WaitForChild("Config")
+)
 
 --Definition Modules
 local itemsmodule = require(game.ReplicatedStorage:WaitForChild("InventorySystem"):WaitForChild("Items"))
@@ -296,38 +302,6 @@ function functions.RemoveSkeleton(player)
 	end
 end
 
-local function Electricute(player)
-
-
-	local function updateShock()
-		local electricOn = 1
-		while functions.HasEffect(player,"ElectricShock") do
-
-			HandleSkeletonTransparency(player,electricOn,.4)
-
-			if (electricOn == 1) then
-				player.Character.Skeleton.LightPart.PointLight.Enabled = true
-				player.Character.Skeleton.LightPart.PointLight.Brightness = 1 + (math.random() * 0.6)   -- Random flicker within a range
-
-				electricOn = 0
-			else
-				player.Character.Skeleton.LightPart.PointLight.Enabled = false
-				electricOn = 1
-			end
-
-			wait(math.random(1,8)*.1) -- Adjust flicker frequency
-		end
-
-	end
-
-	coroutine.wrap(updateShock)()
-end
-
-function functions.HandleElectricShock(player)
-	functions.AddSkeleton(player)
-	Electricute(player)
-end
-
 function functions.HandleIvisibilityLv1(player)
 	functions.AddSkeleton(player)
 	HandleSkeletonTransparency(player,1,.6)
@@ -437,7 +411,11 @@ function functions.AddEffect(player,effectName,sourceLevel,source)
 	--Check to see if we already have this effect
 	if (Effects[player.Name][effectName] == nil) then
 
-		Effects[player.Name][effectName]=EffectsDef[effectName]
+		-- Each player needs an independent runtime copy. The old shared table let
+		-- one player's source and timer overwrite another player's same effect.
+		local runtimeEffect = table.clone(EffectsDef[effectName])
+		runtimeEffect.Effect = table.clone(EffectsDef[effectName].Effect)
+		Effects[player.Name][effectName] = runtimeEffect
 		Effects[player.Name][effectName].Effect.TimeStarted = os.time()
 		Effects[player.Name][effectName].Effect.Source = source
 
@@ -520,6 +498,13 @@ function functions.AddEffect(player,effectName,sourceLevel,source)
 
 		end
 
+		if effectName == "ElectricShock" then
+			EffectVisualService.Start(player, effectName, {
+				Source = source,
+				SourceLevel = sourceLevel,
+			})
+		end
+
 		functions.HandleVFX(player,effectName)
 
 	end 
@@ -543,20 +528,20 @@ function functions.RemoveEffect(player,effectName,source)
 		return
 	end
 
-	if (effectName == "ElectricShock") then
-		HandleSkeletonTransparency(player,0,.4)
-		functions.RemoveSkeleton(player)
-	elseif (effectName == "InvisibilityLv1") then
-		HandleSkeletonTransparency(player,0,.4)
-		functions.RemoveSkeleton(player)
-	elseif (effectName == "InvisibilityLv2") then
-		HandleSkeletonTransparency(player,0,0,true)
-	elseif (effectName == "Kuato") then
-		functions.RemoveKuato(player)
-	end
-
 	--Check to see if we have this effect active
-	if (Effects[player.Name][effectName] ~= nil and Effects[player.Name][effectName].Effect.Source == source) then
+	if (Effects[player.Name][effectName] ~= nil
+		and (source == nil or Effects[player.Name][effectName].Effect.Source == source)) then
+
+		if (effectName == "ElectricShock") then
+			EffectVisualService.Stop(player, effectName)
+		elseif (effectName == "InvisibilityLv1") then
+			HandleSkeletonTransparency(player,0,.4)
+			functions.RemoveSkeleton(player)
+		elseif (effectName == "InvisibilityLv2") then
+			HandleSkeletonTransparency(player,0,0,true)
+		elseif (effectName == "Kuato") then
+			functions.RemoveKuato(player)
+		end
 
 		if (Effects[player.Name][effectName].Effect.Type=="Movement") then
 			if (EffectsDef[effectName].Effect.Amount == 0) then
@@ -655,19 +640,32 @@ function functions.SetEffect(player,effect,sourceLevel)
 
 	spawner(function()
 
-		while not StatesFunctions.GetDead(player) do
+		-- The effect may be removed early (for example, when leaving an electric
+		-- hazard). Stop this captured worker unless this exact runtime effect is
+		-- still the one registered for the player. Checking only Dead allowed a
+		-- removed DOT to keep damaging for its original full duration.
+		while not StatesFunctions.GetDead(player)
+			and Effects[player.Name]
+			and Effects[player.Name][effect.Name] == effect
+		do
 			if (effect.Effect.Action == "DOT") then
 				--TODO SECURITY need to take down player server health 
 				local totalDamage = EffectsDef[effect.Name].Effect.Amount * sourceLevel --(sourceLevel*sourceLevel)
 
-				--Custom electric shock effect
-				if (effect.Name == "ElectricShock") then
-					functions.HandleElectricShock(player)
-				end
-
 				Logger.Debug("EffectFunctions - SetEffect firing PlayerHitEvent")
 
-				PlayerHitEvent:Fire(player, totalDamage,nil,effect.Name)
+				local hitContext
+				if effect.Name == "ElectricShock" then
+					hitContext = {
+						Effect = "Electrocuted",
+						Chance = DeathEffectConfig.Effects.Electrocuted.ElectricStatusChance,
+						Source = effect.Effect.Source or effect.Name,
+						SourceType = "StatusEffect",
+						DamageType = "Electric",
+					}
+				end
+
+				PlayerHitEvent:Fire(player, totalDamage, nil, effect.Name, hitContext)
 
 			elseif (effect.Effect.Type=="Movement") then
 				if (effect.Effect.Amount == 0) then
@@ -747,5 +745,11 @@ end)
 
 ProfileLoadedEvent.Event:Connect(onProfileLoaded)
 
+-- DataEffectsFunctions is already part of the server's established startup
+-- path. Initializing here avoids relying on a newly synced Script instance to
+-- have the correct Roblox class/run context.
+require(
+	ServerScriptService:WaitForChild("ElectricHazardSystem"):WaitForChild("ElectricHazardService")
+).Init(functions)
 
 return functions

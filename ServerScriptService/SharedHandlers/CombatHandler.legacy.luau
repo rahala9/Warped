@@ -356,6 +356,19 @@ local function Reflect(surfaceNormal, bulletDirUnit)
 	return bulletDirUnit - (2 * bulletDirUnit:Dot(surfaceNormal) * surfaceNormal)
 end
 
+local function FindEnvironmentalTarget(hitInstance)
+	local current = hitInstance
+	while current and current ~= workspace do
+		if current:GetAttribute("EnvironmentalTarget") ~= nil
+			or current:GetAttribute("Breakable") ~= nil
+		then
+			return current
+		end
+		current = current.Parent
+	end
+	return nil
+end
+
 --////////////////////////////////////////////////////////////////
 -- Pierce (FIXED: decides bounce vs final)
 -- Return true  => FastCast fires RayPierced (we treat as bounce)
@@ -369,7 +382,8 @@ function CanRayPierce(cast, rayResult, segmentVelocity)
 		return false -- IMPORTANT: forces "final hit" path (RayHit), no ricochet
 	end
 	
-	if (hitPart and hitPart.Parent and hitPart.Parent:GetAttribute("Breakable")) then
+	local environmentalTarget = hitPart and FindEnvironmentalTarget(hitPart)
+	if environmentalTarget and environmentalTarget:GetAttribute("Breakable") then
 		return false
 	end
 	
@@ -570,6 +584,7 @@ local function HandleHit(cast, raycastResult, cosmeticBulletObject, pierced, hit
 	local hitPart = raycastResult.Instance
 	local hitPoint = raycastResult.Position
 	local normal = raycastResult.Normal
+	local environmentalTarget = hitPart and FindEnvironmentalTarget(hitPart)
 	print("TEST HIT hitPart:",hitPart.Name,hitPart,hitPart.CanQuery)
 	local player = cast.UserData.Player
 	local weaponAmmo = cast.UserData.WeaponAmmo
@@ -712,6 +727,18 @@ local function HandleHit(cast, raycastResult, cosmeticBulletObject, pierced, hit
 				end
 			end
 		end
+	end
+
+	if environmentalTarget then
+		local ammoDefinition = ammo[weaponAmmo]
+		enemyFunctions.HandleEnvironmentalTarget(
+			player,
+			environmentalTarget,
+			ammoDefinition and ammoDefinition.BreakableMaterials,
+			normal,
+			hitPoint,
+			hitDir
+		)
 	end
 end
 

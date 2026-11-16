@@ -19,23 +19,25 @@ local PUSH_MAX_ACCEL = 50
 local function getPushRoot(instance)
 	if not instance then return nil end
 
-	-- If you later move to models, this can be expanded.
-	if instance:IsA("BasePart") then
+	if instance:IsA("BasePart") and instance:GetAttribute("Pushable") then
 		return instance
 	end
 
-	if instance:IsA("Model") then
-		return instance.PrimaryPart
+	local ancestor = instance
+	while ancestor do
+		if ancestor:IsA("Model") and ancestor.PrimaryPart
+			and ancestor.PrimaryPart:GetAttribute("Pushable")
+		then
+			return ancestor.PrimaryPart
+		end
+		ancestor = ancestor.Parent
 	end
 
-	local ancestorPart = instance:FindFirstAncestorWhichIsA("BasePart")
-	if ancestorPart then
-		return ancestorPart
-	end
-
-	local ancestorModel = instance:FindFirstAncestorWhichIsA("Model")
-	if ancestorModel and ancestorModel.PrimaryPart then
-		return ancestorModel.PrimaryPart
+	if instance:IsA("BasePart") then
+		local assemblyRoot = instance.AssemblyRootPart
+		if assemblyRoot and assemblyRoot:GetAttribute("Pushable") then
+			return assemblyRoot
+		end
 	end
 
 	return nil
