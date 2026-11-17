@@ -1,6 +1,9 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
 local Debris = game:GetService("Debris")
 local TweenService = game:GetService("TweenService")
+
+local EffectsFunctions = require(ServerScriptService:WaitForChild("Data"):WaitForChild("DataEffectsFunctions"))
 
 local Remotes = ReplicatedStorage:WaitForChild("SharedRemotes")
 local TeleporterRequestEvent = Remotes:WaitForChild("TeleporterRequest")
@@ -13,6 +16,7 @@ local LOCATIONS = {
 
 local FX_DURATION = 3
 local FADE_TIME = 1.2
+local MUTATION_INVISIBLE_SETUP_TIME = 0.2
 
 --==================================================
 -- PATH HELPER
@@ -163,6 +167,19 @@ local function teleporterFX(player, teleporterPath, id)
 
 	-- FADE OUT
 	fadeCharacter(char, 1, FADE_TIME)
+
+	-- Apply the mutation while the player is fully invisible but still at the
+	-- source. This gives clients a short setup window so the Flyhead is already
+	-- following the character before the physical teleport and destination
+	-- fade-in occur.
+	if player.Character == char and char.Parent and EffectsFunctions.HasEffect(player, "Stink") then
+		EffectsFunctions.AddEffect(player, "Mutation", 1, "StinkTeleport")
+		EffectsFunctions.RemoveEffect(player, "Stink")
+		task.wait(MUTATION_INVISIBLE_SETUP_TIME)
+	end
+	if player.Character ~= char or not char.Parent then
+		return
+	end
 
 	-- TELEPORT
 	teleport(player, id)

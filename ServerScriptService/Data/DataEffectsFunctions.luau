@@ -224,7 +224,13 @@ end
 function functions.HandleVFX(player,effectName)
 	--Handle VFX (particles)
 	if (EffectsDef[effectName].Effect["VFX"] ~= nil) then
-		local fx = VFX:FindFirstChild(EffectsDef[effectName].Effect.VFX):Clone()
+		local vfxName = EffectsDef[effectName].Effect.VFX
+		local template = VFX:FindFirstChild(vfxName)
+		if not template then
+			warn("EffectsFunctions.HandleVFX - missing VFX:", vfxName, "for effect:", effectName)
+			return
+		end
+		local fx = template:Clone()
 		if (fx) then
 			if (fx:IsA("Model")) then
 
@@ -498,7 +504,7 @@ function functions.AddEffect(player,effectName,sourceLevel,source)
 
 		end
 
-		if effectName == "ElectricShock" then
+		if EffectsDef[effectName].Effect.ClientVisual then
 			EffectVisualService.Start(player, effectName, {
 				Source = source,
 				SourceLevel = sourceLevel,
@@ -532,7 +538,7 @@ function functions.RemoveEffect(player,effectName,source)
 	if (Effects[player.Name][effectName] ~= nil
 		and (source == nil or Effects[player.Name][effectName].Effect.Source == source)) then
 
-		if (effectName == "ElectricShock") then
+		if (EffectsDef[effectName].Effect.ClientVisual) then
 			EffectVisualService.Stop(player, effectName)
 		elseif (effectName == "InvisibilityLv1") then
 			HandleSkeletonTransparency(player,0,.4)
@@ -750,6 +756,9 @@ ProfileLoadedEvent.Event:Connect(onProfileLoaded)
 -- have the correct Roblox class/run context.
 require(
 	ServerScriptService:WaitForChild("ElectricHazardSystem"):WaitForChild("ElectricHazardService")
+).Init(functions)
+require(
+	ServerScriptService:WaitForChild("StatusEffectZoneSystem"):WaitForChild("StatusEffectZoneService")
 ).Init(functions)
 
 return functions

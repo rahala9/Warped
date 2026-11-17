@@ -360,10 +360,21 @@ local effects = {
 		ImageOffsetY = 1*64,
 	};
 
+	["Mutation"] = {
+		Name = "Mutation",
+		Description = "Teleportation has scrambled your genetic structure!",
+		Effect = {Type="Mutation",Action="FlyHead",Amount=0,TimeInEffect=60,TimeStarted=0,CurrentEffectTime=60,ClientVisual=true},
+		Source = nil,
+		Deaths = {},
+		-- Reuse the populated TimeDistortion icon until Mutation has dedicated art.
+		ImageOffsetX = 3*64,
+		ImageOffsetY = 3*64,
+	};
+
 	["ElectricShock"] = {
 		Name = "ElectricShock",
 		Description = "High-voltage current is coursing through your suit.",
-		Effect = {Type="Health",Action="DOT",Amount=50,TimeInEffect=10,TimeStarted=0,CurrentEffectTime=10,VFX="Electricity"},
+		Effect = {Type="Health",Action="DOT",Amount=50,TimeInEffect=10,TimeStarted=0,CurrentEffectTime=10,VFX="Electricity",ClientVisual=true},
 		Source = nil,
 		Deaths = {"Zapped","Regular little Nicky Tesla","Shocked"},
 		ImageOffsetX = 1*64,

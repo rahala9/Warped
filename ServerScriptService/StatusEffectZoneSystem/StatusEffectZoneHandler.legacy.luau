@@ -1,0 +1,3 @@
+-- Intentionally empty compatibility script.
+-- StatusEffectZoneService is initialized by DataEffectsFunctions after the
+-- effect API exists, avoiding a circular require and duplicate zone bindings.
