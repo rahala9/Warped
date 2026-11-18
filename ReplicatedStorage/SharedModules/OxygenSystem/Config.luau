@@ -21,7 +21,8 @@ local Config = {
 
 	UI = {
 		Name = "OxygenBar",
-		Position = UDim2.new(0, 79, 1, -97),
+		-- Sit slightly lower so the fill is centered on the O2 status slot.
+		Position = UDim2.new(0, 79, 1, -95),
 		Size = UDim2.fromOffset(117, 14),
 		ZIndex = 98,
 		FillColor = Color3.fromRGB(20, 145, 225),

@@ -24,7 +24,6 @@ return {
 	
 	--["FarmClothesLine"]={ Name = "FarmClothesLine", DisplayName="", Folder = workspaceZones:WaitForChild("FarmClothesLine") },
 	--["FarmChimney"]={ Name = "FarmChimney", DisplayName="", Folder = workspaceZones:WaitForChild("FarmChimney") },
-	--["FarmCropCircle"]={ Name = "FarmCropCircle", DisplayName="", Folder = workspaceZones:WaitForChild("FarmCropCircle"),Effects = {["TimeDistortion"]={Condition=nil,Value=nil}} },
 	--["Outhouse"]={ Name = "Outhouse", DisplayName="", Folder = workspaceZones:WaitForChild("Outhouse"), Effects = {["Stink"]={Condition=nil,Value=nil}}},
 	--["Swimming"]={ Name = "Swimming",  DisplayName="", Folder = workspaceZones:WaitForChild("Swimming"), Effects = {["Wet"]={Condition=nil,Value=nil},["ElectricShock"]={Condition="HoldingItemWithTrait",Value="Electric"},["SpawnOldToothy"]={Condition="HasEffect",Value="Bleed"},["SpawnOldToothy2"]={Condition="HasEffect",Value="Hemorrhage"}} },
 	
@@ -41,7 +40,7 @@ return {
 	--["ChickenCoop"]={ Name = "ChickenCoop",  DisplayName="", Folder = workspaceZones:WaitForChild("Chicken Coop") },
 	--["BeeHives"]={ Name = "BeeHives",  DisplayName="", Folder = workspaceZones:WaitForChild("BeeHives") },
 	--["CowPasture"]={ Name = "CowPasture",  DisplayName="", Folder = workspaceZones:WaitForChild("Cow Pasture") },
-	--["Toxic"]={ Name = "Toxic", DisplayName="", Folder = workspaceZones:WaitForChild("Toxic"),Effects = {["Biohazard"]={Condition=nil,Value=nil},["Kuato"]={Condition=nil,Value=nil}} },
+	--["Toxic"]={ Name = "Toxic", DisplayName="", Folder = workspaceZones:WaitForChild("Toxic"),Effects = {["Kuato"]={Condition=nil,Value=nil}} },
 	--["GasStationDelivery"]={ Name = "GasStationDelivery", DisplayName="", Folder = workspaceZones:WaitForChild("Gas Station Delivery"), Effects = {["Deliver"]={Condition="HoldingItemForDelivery",Value="FishDeliveryCrate"}} },
 	--["MesshallDelivery"]={ Name = "MesshallDelivery", DisplayName="", Folder = workspaceZones:WaitForChild("Messhall Delivery"), Effects = {["Deliver"]={Condition="HoldingItemForDelivery",Value="GaterMadeDelivery"}} },
 	--["CoconutDelivery"]={ Name = "CoconutDelivery", DisplayName="", Folder = workspaceZones:WaitForChild("CoconutDelivery"), Effects = {["Deliver"]={Condition="HoldingItemForDelivery",Value="CoconutDelivery"}} },

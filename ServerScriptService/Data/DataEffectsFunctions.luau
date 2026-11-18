@@ -26,13 +26,25 @@ local EnemyFunctions = require(ServerScriptService.SharedFunctions.EnemyFunction
 local EffectVisualService = require(
 	ServerScriptService:WaitForChild("EffectVisualSystem"):WaitForChild("EffectVisualService")
 )
-local DeathEffectConfig = require(
-	ReplicatedStorage:WaitForChild("DeathEffectSystem"):WaitForChild("Config")
+local EffectBehaviorService = require(
+	ServerScriptService:WaitForChild("EffectSystem"):WaitForChild("EffectBehaviorService")
 )
-
+local EffectRuntimeService = require(
+	ServerScriptService:WaitForChild("EffectSystem"):WaitForChild("EffectRuntimeService")
+)
+local EffectQueryService = require(
+	ServerScriptService:WaitForChild("EffectSystem"):WaitForChild("EffectQueryService")
+)
+local DefinitionAdapter = require(
+	ReplicatedStorage:WaitForChild("EffectSystem"):WaitForChild("DefinitionAdapter")
+)
 --Definition Modules
 local itemsmodule = require(game.ReplicatedStorage:WaitForChild("InventorySystem"):WaitForChild("Items"))
 local EffectsDef = require(ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("Effects")) --generic defs
+local DefinitionValidator = require(
+	ServerScriptService:WaitForChild("EffectSystem"):WaitForChild("DefinitionValidator")
+)
+DefinitionValidator.ValidateAll(EffectsDef)
 local enemiesModule = require(game.ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("Enemies"))
 --local NPCDialog = require(ServerStorage.Data.Templates.NPCDialog)
 
@@ -84,7 +96,15 @@ function functions.HasEffect(player,effectName,checkResultsOfEffect)
 	end
 
 
-	return (Effects[player.Name][effectName] ~= nil)
+	return EffectQueryService.HasEffect(player, effectName)
+end
+
+function functions.HasBehavior(player, behaviorType, actionName)
+	return EffectQueryService.HasBehavior(player, behaviorType, actionName)
+end
+
+function functions.CanPerform(player, actionName)
+	return EffectQueryService.CanPerform(player, actionName)
 end
 
 function functions.RemoveEnemyEffectUI(enemy,effectName)
@@ -383,7 +403,9 @@ function functions.HandleOneTimeEffects(player,effectName,sourceLevel,source)
 end
 
 function functions.HandleUntimedEffects(player,effect,sourceLevel,source)
-	if (EffectsDef[effect.Name].Effect.Type == "Movement") then
+	if EffectsDef[effect.Name].Behaviors then
+		-- Composed untimed behaviors already applied before this UI notification.
+	elseif (EffectsDef[effect.Name].Effect.Type == "Movement") then
 		player.Character.Humanoid.WalkSpeed = sourceLevel
 		PlayerStateChangeEvent:FireClient(player,"Movement",nil,nil,nil,nil,player.Character.Humanoid.WalkSpeed)
 	elseif (EffectsDef[effect.Name].Effect.Type == "InvisibilityLv2") then
@@ -391,6 +413,64 @@ function functions.HandleUntimedEffects(player,effect,sourceLevel,source)
 	end
 
 	addEffectEvent:FireClient(player,effect)
+end
+
+local DEFAULT_EFFECT_SOURCE = "__default"
+
+local function sourceKeyFor(source): string
+	if typeof(source) == "string" and source ~= "" then
+		return source
+	end
+	return DEFAULT_EFFECT_SOURCE
+end
+
+local function expiryFor(duration: number, now: number)
+	if duration < 0 then
+		return nil
+	end
+	return now + duration
+end
+
+local function recomputeExpiry(runtimeEffect)
+	local latest = 0
+	local indefinite = false
+	local strongestClaim
+	for _, claim in pairs(runtimeEffect.Sources or {}) do
+		if claim.ExpiresAt == nil then
+			indefinite = true
+		elseif claim.ExpiresAt > latest then
+			latest = claim.ExpiresAt
+		end
+		if not strongestClaim or (claim.SourceLevel or 1) > (strongestClaim.SourceLevel or 1) then
+			strongestClaim = claim
+		end
+	end
+	runtimeEffect.ExpiresAt = indefinite and nil or (latest > 0 and latest or nil)
+	if runtimeEffect.Effect then
+		if strongestClaim then
+			runtimeEffect.Effect.Source = strongestClaim.Source
+			runtimeEffect.Effect.SourceLevel = strongestClaim.SourceLevel or 1
+		end
+		if runtimeEffect.ExpiresAt then
+			runtimeEffect.Effect.CurrentEffectTime = math.max(0, math.ceil(runtimeEffect.ExpiresAt - workspace:GetServerTimeNow()))
+		end
+	end
+end
+
+local function addSourceClaim(runtimeEffect, source, sourceLevel, duration, refreshExisting)
+	local key = sourceKeyFor(source)
+	local claim = runtimeEffect.Sources[key]
+	if not claim then
+		claim = {}
+		runtimeEffect.Sources[key] = claim
+	elseif not refreshExisting then
+		return false
+	end
+	claim.Source = source
+	claim.SourceLevel = sourceLevel
+	claim.ExpiresAt = expiryFor(duration, workspace:GetServerTimeNow())
+	recomputeExpiry(runtimeEffect)
+	return true
 end
 
 function functions.AddEffect(player,effectName,sourceLevel,source)
@@ -414,6 +494,37 @@ function functions.AddEffect(player,effectName,sourceLevel,source)
 		sourceLevel = 1
 	end
 
+	local definition = EffectsDef[effectName]
+	local duration = DefinitionAdapter.GetDuration(definition)
+	local stacking = DefinitionAdapter.GetStacking(definition)
+	local existing = Effects[player.Name][effectName]
+	if existing then
+		if stacking.Mode == "Replace" then
+			functions.RemoveEffect(player, effectName)
+		elseif stacking.Mode == "Refresh" then
+			addSourceClaim(existing, source, sourceLevel, duration, true)
+			existing.Stacks = 1
+			existing.StartedAt = workspace:GetServerTimeNow()
+			existing.Effect.TimeStarted = os.time()
+			addEffectEvent:FireClient(player, existing)
+			return existing
+		elseif stacking.Mode == "Stack" then
+			addSourceClaim(existing, source, sourceLevel, duration, true)
+			existing.Stacks = math.min(stacking.MaxStacks, (existing.Stacks or 1) + 1)
+			existing.StartedAt = workspace:GetServerTimeNow()
+			existing.Effect.TimeStarted = os.time()
+			addEffectEvent:FireClient(player, existing)
+			return existing
+		else
+			-- Legacy effects retain their no-refresh behavior, but a distinct zone
+			-- may still own a claim so leaving one overlap cannot remove another.
+			if addSourceClaim(existing, source, sourceLevel, duration, false) then
+				addEffectEvent:FireClient(player, existing)
+			end
+			return existing
+		end
+	end
+
 	--Check to see if we already have this effect
 	if (Effects[player.Name][effectName] == nil) then
 
@@ -422,13 +533,26 @@ function functions.AddEffect(player,effectName,sourceLevel,source)
 		local runtimeEffect = table.clone(EffectsDef[effectName])
 		runtimeEffect.Effect = table.clone(EffectsDef[effectName].Effect)
 		Effects[player.Name][effectName] = runtimeEffect
+		local now = workspace:GetServerTimeNow()
+		runtimeEffect.StartedAt = now
+		runtimeEffect.Duration = duration
+		runtimeEffect.ExpiresAt = expiryFor(duration, now)
+		runtimeEffect.Stacks = 1
+		runtimeEffect.Sources = {}
 		Effects[player.Name][effectName].Effect.TimeStarted = os.time()
 		Effects[player.Name][effectName].Effect.Source = source
+		Effects[player.Name][effectName].Effect.SourceLevel = sourceLevel
+		addSourceClaim(runtimeEffect, source, sourceLevel, duration, true)
+		EffectQueryService.TrackEffect(player, effectName, runtimeEffect, definition)
+
+		-- New definitions may compose any number of data-driven behaviors while
+		-- legacy definitions continue through the Type/Action code below.
+		EffectBehaviorService.Apply(player, effectName, runtimeEffect, sourceLevel, EffectsDef[effectName])
 
 		--Effects that are immediate have a time in effect of 0 and do not need to add icon on UI, but should message that it has happened
 		--Effects with time in effect of -1 are special effects that stay on until switched out with others or death
 		--TODO handle the special effects
-		if (EffectsDef[effectName].Effect.TimeInEffect > 0) then
+		if (duration > 0) then
 
 			--One Time effects effects that last for certain time will be done here,
 			if (EffectsDef[effectName].Effect.Type=="Size" and EffectsDef[effectName].Effect.Action == "Multiply") then
@@ -486,9 +610,9 @@ function functions.AddEffect(player,effectName,sourceLevel,source)
 
 			functions.SetEffect(player,Effects[player.Name][effectName],sourceLevel)
 
-		elseif (EffectsDef[effectName].Effect.TimeInEffect == 0) then	
+		elseif (duration == 0) then
 			functions.HandleOneTimeEffects(player,effectName,sourceLevel,source)
-		elseif (EffectsDef[effectName].Effect.TimeInEffect == -1) then	
+		elseif (duration == -1) then
 			functions.HandleUntimedEffects(player,Effects[player.Name][effectName],sourceLevel,source)
 		else
 
@@ -512,6 +636,7 @@ function functions.AddEffect(player,effectName,sourceLevel,source)
 		end
 
 		functions.HandleVFX(player,effectName)
+		return runtimeEffect
 
 	end 
 end
@@ -534,9 +659,39 @@ function functions.RemoveEffect(player,effectName,source)
 		return
 	end
 
+	local runtimeEffect = Effects[player.Name][effectName]
+	if not runtimeEffect then
+		return
+	end
+
+	-- A source-specific removal releases only that owner's claim. The effect
+	-- remains active while another overlapping zone/system still owns it.
+	if source ~= nil and runtimeEffect.Sources then
+		local key = sourceKeyFor(source)
+		if not runtimeEffect.Sources[key] then
+			return
+		end
+		runtimeEffect.Sources[key] = nil
+		if next(runtimeEffect.Sources) ~= nil then
+			recomputeExpiry(runtimeEffect)
+			addEffectEvent:FireClient(player, runtimeEffect)
+			return
+		end
+	elseif source ~= nil and runtimeEffect.Effect.Source ~= source then
+		return
+	end
+
 	--Check to see if we have this effect active
-	if (Effects[player.Name][effectName] ~= nil
-		and (source == nil or Effects[player.Name][effectName].Effect.Source == source)) then
+	if (Effects[player.Name][effectName] == runtimeEffect) then
+		EffectRuntimeService.Untrack(runtimeEffect)
+		EffectBehaviorService.Remove(
+			player,
+			effectName,
+			runtimeEffect,
+			runtimeEffect.Effect.SourceLevel or 1,
+			EffectsDef[effectName]
+		)
+		EffectQueryService.UntrackEffect(player, effectName, runtimeEffect)
 
 		if (EffectsDef[effectName].Effect.ClientVisual) then
 			EffectVisualService.Stop(player, effectName)
@@ -549,7 +704,9 @@ function functions.RemoveEffect(player,effectName,source)
 			functions.RemoveKuato(player)
 		end
 
-		if (Effects[player.Name][effectName].Effect.Type=="Movement") then
+		if not EffectsDef[effectName].Behaviors
+			and (Effects[player.Name][effectName].Effect.Type=="Movement")
+		then
 			if (EffectsDef[effectName].Effect.Amount == 0) then
 
 				player.Character.PrimaryPart.Anchored = false
@@ -595,7 +752,7 @@ function functions.RemoveEffect(player,effectName,source)
 			end
 		end
 
-		functions.UnsetEffect(player,Effects[player.Name][effectName])
+		functions.UnsetEffect(player,runtimeEffect)
 
 		Effects[player.Name][effectName] = nil --TODO do we need to remove from table some other way?
 
@@ -641,96 +798,80 @@ function functions.RemoveEnemyEffect(enemy,effectName)
 	functions.RemoveEnemyEffectUI(enemy,effectName)
 end
 
+local function tickLegacyEffect(player, effect, sourceLevel, dt)
+	EffectBehaviorService.Tick(player, effect.Name, effect, sourceLevel, EffectsDef[effect.Name], dt)
+
+	-- Definitions with Behaviors are fully handled above. Their legacy Effect
+	-- payload may remain temporarily for enemy-effect compatibility, but must
+	-- never run a second player-side implementation here.
+	if EffectsDef[effect.Name].Behaviors then
+		return
+	end
+
+	if effect.Effect.Action == "DOT" then
+		local totalDamage = EffectsDef[effect.Name].Effect.Amount * sourceLevel
+		PlayerHitEvent:Fire(player, totalDamage, nil, effect.Name)
+	elseif effect.Effect.Type == "Movement" then
+		if effect.Effect.Amount == 0 then
+			player.Character.PrimaryPart.Anchored = true
+			player.Character.Humanoid.Sit = true
+			EnableStates(player, false)
+		else
+			player.Character.Humanoid.WalkSpeed = effect.Effect.Amount * sourceLevel
+			PlayerStateChangeEvent:FireClient(player,"Movement",nil,nil,nil,nil,player.Character.Humanoid.WalkSpeed)
+		end
+	elseif effect.Effect.Type == "Stability" then
+		if effect.Effect.Amount == 100 then
+			player.Character.Humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+			player.Character.PrimaryPart.Anchored = true
+			player.Character.Humanoid.Sit = true
+			EnableStates(player, false)
+		else
+			player.Character.Humanoid.WalkSpeed = effect.Effect.Amount * sourceLevel
+			PlayerStateChangeEvent:FireClient(player,"Movement",nil,nil,nil,nil,player.Character.Humanoid.WalkSpeed)
+		end
+	elseif effect.Effect.Type == "Stamina" and effect.Effect.Action == "AddOverTime" then
+		if StatesFunctions.GetStamina(player) < 100 then
+			StatesFunctions.AddStamina(player,effect.Effect.Amount)
+			UpdateStaminaEvent:FireClient(player,StatesFunctions.GetStamina(player),100)
+		end
+	elseif effect.Effect.Type == "Stamina" and effect.Effect.Action == "SubtractOverTime" then
+		if StatesFunctions.GetStamina(player) > 0 then
+			StatesFunctions.RemoveStamina(player,effect.Effect.Amount)
+			UpdateStaminaEvent:FireClient(player,StatesFunctions.GetStamina(player),100)
+		end
+	elseif effect.Effect.Type == "Stamina" and effect.Effect.Action == "Subtract" then
+		if StatesFunctions.GetStamina(player) > 0 then
+			StatesFunctions.AddStamina(player,effect.Effect.Amount)
+			UpdateStaminaEvent:FireClient(player,StatesFunctions.GetStamina(player),100)
+		end
+	elseif effect.Effect.Type == "Health" and effect.Effect.Action == "Add" then
+		if StatesFunctions.GetHealth(player) < AttributesFunctions.GetMaxHealth(player) then
+			StatesFunctions.AddHealth(player,effect.Effect.Amount)
+			UpdateHealthEvent:FireClient(player,StatesFunctions.GetHealth(player),AttributesFunctions.GetMaxHealth(player))
+			functions.RemoveEffect(player,effect.Name)
+		end
+	end
+end
+
 function functions.SetEffect(player,effect,sourceLevel)
 	Logger.Debug("EffectFunctions - SetEffect player:"..player.Name.." effect Name:"..effect.Name.." sourceLevel:"..sourceLevel)
-
-	spawner(function()
-
-		-- The effect may be removed early (for example, when leaving an electric
-		-- hazard). Stop this captured worker unless this exact runtime effect is
-		-- still the one registered for the player. Checking only Dead allowed a
-		-- removed DOT to keep damaging for its original full duration.
-		while not StatesFunctions.GetDead(player)
-			and Effects[player.Name]
-			and Effects[player.Name][effect.Name] == effect
-		do
-			if (effect.Effect.Action == "DOT") then
-				--TODO SECURITY need to take down player server health 
-				local totalDamage = EffectsDef[effect.Name].Effect.Amount * sourceLevel --(sourceLevel*sourceLevel)
-
-				Logger.Debug("EffectFunctions - SetEffect firing PlayerHitEvent")
-
-				local hitContext
-				if effect.Name == "ElectricShock" then
-					hitContext = {
-						Effect = "Electrocuted",
-						Chance = DeathEffectConfig.Effects.Electrocuted.ElectricStatusChance,
-						Source = effect.Effect.Source or effect.Name,
-						SourceType = "StatusEffect",
-						DamageType = "Electric",
-					}
-				end
-
-				PlayerHitEvent:Fire(player, totalDamage, nil, effect.Name, hitContext)
-
-			elseif (effect.Effect.Type=="Movement") then
-				if (effect.Effect.Amount == 0) then
-					player.Character.PrimaryPart.Anchored = true
-					player.Character.Humanoid.Sit = true
-					EnableStates(player,false)
-				else
-					player.Character.Humanoid.WalkSpeed = effect.Effect.Amount*sourceLevel
-					PlayerStateChangeEvent:FireClient(player,"Movement",nil,nil,nil,nil,player.Character.Humanoid.WalkSpeed)
-				end
-			elseif (effect.Effect.Type=="Stability") then
-				if (effect.Effect.Amount == 100) then
-					player.Character.Humanoid:ChangeState(Enum.HumanoidStateType.Physics)
-					--player.Character.Humanoid.HipHeight = 0 --2.65
-					--wait(1)
-					player.Character.PrimaryPart.Anchored = true
-					player.Character.Humanoid.Sit = true
-					EnableStates(player,false)
-				else
-					player.Character.Humanoid.WalkSpeed = effect.Effect.Amount*sourceLevel
-					PlayerStateChangeEvent:FireClient(player,"Movement",nil,nil,nil,nil,player.Character.Humanoid.WalkSpeed)
-				end	
-			elseif (effect.Effect.Type=="Stamina" and effect.Effect.Action == "AddOverTime") then
-				if (StatesFunctions.GetStamina(player) < 100) then --TODO remove hardcode
-					StatesFunctions.AddStamina(player,effect.Effect.Amount)
-					UpdateStaminaEvent:FireClient(player,StatesFunctions.GetStamina(player) , 100)
-				end
-			elseif (effect.Effect.Type=="Stamina" and effect.Effect.Action == "SubtractOverTime") then
-				if (StatesFunctions.GetStamina(player) > 0) then --TODO remove hardcode
-					StatesFunctions.RemoveStamina(player,effect.Effect.Amount)
-					UpdateStaminaEvent:FireClient(player,StatesFunctions.GetStamina(player) , 100)
-				end
-			elseif (effect.Effect.Type=="Stamina" and effect.Effect.Action == "Subtract") then
-				if (StatesFunctions.GetStamina(player) > 0) then --TODO remove hardcode
-					StatesFunctions.AddStamina(player,effect.Effect.Amount)
-					UpdateStaminaEvent:FireClient(player,StatesFunctions.GetStamina(player) , 100)
-				end
-			elseif (effect.Effect.Type=="Health" and effect.Effect.Action == "Add") then 
-				if StatesFunctions.GetHealth(player) < AttributesFunctions.GetMaxHealth(player) then
-					StatesFunctions.AddHealth(player,effect.Effect.Amount)
-					UpdateHealthEvent:FireClient(player,StatesFunctions.GetHealth(player), AttributesFunctions.GetMaxHealth(player))
-					functions.RemoveEffect(player,effect.Name)
-				end
-
+	EffectRuntimeService.Track(effect, {
+		TickInterval = DefinitionAdapter.GetTickInterval(EffectsDef[effect.Name]),
+		IsActive = function()
+			return not StatesFunctions.GetDead(player)
+				and Effects[player.Name] ~= nil
+				and Effects[player.Name][effect.Name] == effect
+		end,
+		OnTick = function(dt)
+			tickLegacyEffect(player, effect, effect.Effect.SourceLevel or sourceLevel, dt)
+		end,
+		OnExpire = function()
+			if Effects[player.Name] and Effects[player.Name][effect.Name] == effect then
+				functions.RemoveEffect(player, effect.Name)
 			end
-
-			--Remove any effect that is complete
-			if (effect~= nil and (os.time() - effect.Effect.TimeStarted) >= effect.Effect.TimeInEffect) then
-				functions.RemoveEffect(player,effect.Name)
-				break
-			end
-
-			task.wait(1)
-		end
-
-		Logger.Debug("EXITING EFFECT LOOP Player Dead status:",StatesFunctions.GetDead(player))
-
-	end)
-
+		end,
+	})
 	addEffectEvent:FireClient(player,effect)
 end
 
@@ -742,10 +883,18 @@ end
 
 
 function onProfileLoaded(player)
+	EffectQueryService.ClearPlayer(player)
 	Effects[player.Name] = {}
 end
 
 Players.PlayerRemoving:Connect(function(player)
+	local playerEffects = Effects[player.Name]
+	if playerEffects then
+		for _, runtimeEffect in pairs(playerEffects) do
+			EffectRuntimeService.Untrack(runtimeEffect)
+		end
+	end
+	EffectQueryService.ClearPlayer(player)
 	Effects[player.Name] = nil
 end)
 

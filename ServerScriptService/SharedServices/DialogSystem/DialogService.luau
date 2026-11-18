@@ -22,6 +22,9 @@ local DialogRemotes = require(ReplicatedStorage.SharedModules.Dialog:WaitForChil
 local Definitions = require(script.Parent.DialogDefinitions)
 local Conditions = require(script.Parent.DialogConditions)
 local Actions = require(script.Parent.DialogActions)
+local EffectQueryService = require(
+	game:GetService("ServerScriptService"):WaitForChild("EffectSystem"):WaitForChild("EffectQueryService")
+)
 
 local DialogService = {}
 
@@ -34,6 +37,33 @@ local QuestService = nil
 
 local function getDialogDef(npcId)
 	return Definitions.Dialogs[npcId]
+end
+
+local function openRestrictionDialog(player, npcId, displayName, message)
+	local restrictedDefinition = {
+		npcId = npcId,
+		displayName = displayName or npcId,
+		nodes = {
+			restricted = {
+				npcText = message,
+				options = {
+					{text = "Leave."},
+				},
+			},
+		},
+	}
+	ActiveDialogs[player] = {
+		npcId = npcId,
+		currentNodeId = "restricted",
+		dialogDef = restrictedDefinition,
+	}
+	DialogRemotes.GetRemoteEvent("DialogOpened"):FireClient(player, {
+		npcId = npcId,
+		npcDisplayName = restrictedDefinition.displayName,
+		nodeId = "restricted",
+		npcText = message,
+		options = {{text = "Leave.", index = 1}},
+	})
 end
 
 local function buildContext(player, npcId)
@@ -132,6 +162,12 @@ function DialogService:OpenDialog(player, npcId)
 		return false
 	end
 
+	local allowed, restrictionMessage = EffectQueryService.CanPerform(player, "NPCInteraction")
+	if not allowed then
+		openRestrictionDialog(player, npcId, dialogDef.displayName, restrictionMessage)
+		return true
+	end
+
 	local rootNodeId = resolveRoot(player, dialogDef)
 	if not rootNodeId then
 		warn("[DialogService] No matching root for", npcId, "player:", player.Name)
@@ -167,6 +203,12 @@ end
 function DialogService:SelectOption(player, optionIndex)
 	local active = ActiveDialogs[player]
 	if not active then
+		return
+	end
+
+	local allowed = EffectQueryService.CanPerform(player, "NPCInteraction")
+	if not allowed and active.currentNodeId ~= "restricted" then
+		self:OpenDialog(player, active.npcId)
 		return
 	end
 
@@ -228,6 +270,16 @@ end
 
 function DialogService:IsInDialog(player)
 	return ActiveDialogs[player] ~= nil
+end
+
+function DialogService:ShowRestrictionDialog(player, npcId, displayName, message)
+	self:CloseDialog(player)
+	openRestrictionDialog(
+		player,
+		npcId or "RestrictedInteraction",
+		displayName or "Shopkeeper",
+		message or "You cannot do that right now."
+	)
 end
 
 function DialogService:RequestDialog(player, npcId)

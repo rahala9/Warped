@@ -2,6 +2,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local addEffectEvent = ReplicatedStorage:WaitForChild("SharedRemotes"):WaitForChild("AddEffect")
 local removeEffectEvent = ReplicatedStorage:WaitForChild("SharedRemotes"):WaitForChild("RemoveEffect")
 local effectsDef = require(ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("Effects"))
+local DefinitionAdapter = require(ReplicatedStorage:WaitForChild("EffectSystem"):WaitForChild("DefinitionAdapter"))
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 local CurrentPlayer = Players.LocalPlayer or Players:GetPropertyChangedSignal("LocalPlayer"):wait()
@@ -13,6 +14,15 @@ local icons = ReplicatedStorage:WaitForChild("SharedClientAssets"):WaitForChild(
 local Effects = {} 
 
 addEffectEvent.OnClientEvent:Connect(function(effect)
+	local active = Effects[effect.Name]
+	if active then
+		-- Reapplication/another source updates the authoritative deadline without
+		-- producing duplicate icons or hover panels.
+		active.Effect = effect
+		return
+	end
+
+	local presentation = DefinitionAdapter.GetPresentation(effectsDef[effect.Name])
 
 	local EffectIcon = Instance.new("ImageLabel")
 
@@ -23,7 +33,7 @@ addEffectEvent.OnClientEvent:Connect(function(effect)
 	local icon = icons:FindFirstChild("EffectIcon") --icons:FindFirstChild(effect.Name.."Icon")
 	if (icon ~= nil) then
 		EffectIcon.Image = "rbxassetid://117028963756784" --icon.Image
-		EffectIcon.ImageRectOffset = Vector2.new(effect.ImageOffsetX,effect.ImageOffsetY)
+		EffectIcon.ImageRectOffset = Vector2.new(presentation.ImageOffsetX,presentation.ImageOffsetY)
 		EffectIcon.ImageRectSize = icon.ImageRectSize
 	end
 
@@ -69,7 +79,7 @@ addEffectEvent.OnClientEvent:Connect(function(effect)
 	descLabel.Size = UDim2.new(1, 0, 1, 0)
 	descLabel.Position = UDim2.new(0, 0, 0, .5)
 	descLabel.BackgroundTransparency = 1
-	descLabel.Text = effectsDef[effect.Name].Description
+	descLabel.Text = presentation.Description
 	descLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 	descLabel.TextStrokeTransparency = 0
 	descLabel.TextWrapped = true
@@ -94,7 +104,8 @@ addEffectEvent.OnClientEvent:Connect(function(effect)
 	effectTime.TextColor3 = Color3.fromRGB(255,255,255)
 	effectTime.TextSize = 14
 	effectTime.Font = Enum.Font.SourceSansBold
-	effectTime.Text = effect.Effect.TimeInEffect
+	effectTime.Text = effect.Duration or effect.Effect.TimeInEffect
+	effectTime.Visible = presentation.ShowTimer
 	effectTime.Parent = EffectIcon
 	
 	local hoverConnection = EffectIcon.MouseEnter:Connect(function()
@@ -106,7 +117,13 @@ addEffectEvent.OnClientEvent:Connect(function(effect)
 	end)
 	
 
-	Effects[effect.Name] = {GUI=EffectIcon,Effect=effect,HoverConnection=hoverConnection,ExitHoverConnection=exitHoverConnection}
+	Effects[effect.Name] = {
+		GUI=EffectIcon,
+		DescriptionGUI=effectsDescriptionFrame,
+		Effect=effect,
+		HoverConnection=hoverConnection,
+		ExitHoverConnection=exitHoverConnection,
+	}
 
 
 	if (effect.Effect.Type=="Screen" and effect.Effect.Action == "Blur") then
@@ -137,11 +154,15 @@ removeEffectEvent.OnClientEvent:Connect(function(effect)
 
 	local hoverConnection = Effects[effect.Name].HoverConnection
 	local exitHoverConnection = Effects[effect.Name].ExitHoverConnection
+	local descriptionGUI = Effects[effect.Name].DescriptionGUI
 	
 	hoverConnection:Disconnect()
 	exitHoverConnection:Disconnect()
 	
 	Effects[effect.Name] = nil
+	if descriptionGUI then
+		descriptionGUI:Destroy()
+	end
 
 	for _, effectIcon in pairs(effectsFrame:GetChildren()) do
 
@@ -167,9 +188,15 @@ RunService.Heartbeat:Connect(function(step)
 		if (Effects ~= nil) then
 			for _, effects in pairs(Effects) do
 				if (effects ~= nil) then
-					if (effects.Effect.Effect.CurrentEffectTime > 0) then
-						effects.Effect.Effect.CurrentEffectTime = effects.Effect.Effect.CurrentEffectTime - 1
-						effects.GUI:WaitForChild("EffectTime").Text = effects.Effect.Effect.CurrentEffectTime
+					local runtimeEffect = effects.Effect
+					local timeLabel = effects.GUI:FindFirstChild("EffectTime")
+					if timeLabel and runtimeEffect.ExpiresAt then
+						timeLabel.Text = tostring(math.max(0, math.ceil(runtimeEffect.ExpiresAt - workspace:GetServerTimeNow())))
+					elseif timeLabel and runtimeEffect.Effect.CurrentEffectTime > 0 then
+						-- Compatibility fallback for server payloads created before the
+						-- centralized runtime was introduced.
+						runtimeEffect.Effect.CurrentEffectTime -= 1
+						timeLabel.Text = tostring(runtimeEffect.Effect.CurrentEffectTime)
 					end
 				end	
 			end

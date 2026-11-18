@@ -8,6 +8,7 @@ local DEFAULT_EFFECT = "ElectricShock"
 local DEFAULT_SOURCE_LEVEL = 1
 local REFRESH_INTERVAL = 1
 local HAZARD_SIZE = Vector3.new(3, 3, 3)
+local EXIT_POLICY_VERSION = 2
 
 local ElectricHazardService = {}
 
@@ -29,7 +30,12 @@ local function createZoneForAttachment(attachment: Attachment)
 	folder:SetAttribute("ZoneType", "ElectricHazard")
 	if folder:GetAttribute("EffectName") == nil then folder:SetAttribute("EffectName", DEFAULT_EFFECT) end
 	if folder:GetAttribute("SourceLevel") == nil then folder:SetAttribute("SourceLevel", DEFAULT_SOURCE_LEVEL) end
-	if folder:GetAttribute("RemoveOnExit") == nil then folder:SetAttribute("RemoveOnExit", true) end
+	-- Version 2 lets the three-second ElectricShock expire naturally after exit.
+	-- Migrate generated folders once, then preserve any later designer override.
+	if folder:GetAttribute("ExitPolicyVersion") ~= EXIT_POLICY_VERSION then
+		folder:SetAttribute("RemoveOnExit", false)
+		folder:SetAttribute("ExitPolicyVersion", EXIT_POLICY_VERSION)
+	end
 	if folder:GetAttribute("Enabled") == nil then folder:SetAttribute("Enabled", true) end
 	folder.Parent = attachment
 

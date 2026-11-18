@@ -19,6 +19,9 @@ local PlayerStateChangeEvent = ReplicatedStorage:WaitForChild("SharedRemotes"):W
 
 --Functions
 local EffectsFunctions = require(ServerScriptService.Data.DataEffectsFunctions)
+local EffectQueryService = require(
+	ServerScriptService:WaitForChild("EffectSystem"):WaitForChild("EffectQueryService")
+)
 local CharacterFunctions = require(ServerScriptService.Data.DataCharacterFunctions)
 local AttributesFunctions = require(ServerScriptService.Data.DataAttributesFunctions)
 local StatesFunctions = require(ServerScriptService.Data.DataStatesFunctions)
@@ -63,6 +66,15 @@ local QuestsDef = require(ServerScriptService.Data.Templates.Quests)
 
 --Modules
 local Data = require(ServerScriptService.Data.Data)
+
+local function canPurchase(player): boolean
+	local allowed, message = EffectQueryService.CanPerform(player, "Purchase")
+	if not allowed then
+		MessagePlayerEvent:FireClient(player, message)
+		return false
+	end
+	return true
+end
 
 local functions = {}
 
@@ -427,6 +439,9 @@ end
 
 function functions.BuyItem(player,itemName,amount)
 	--TODO check inventory space
+	if not canPurchase(player) then
+		return false
+	end
 
 	if (functions.HasEnoughMoney(player,functions.GetItemDef(itemName)["Value"])) then
 
@@ -562,6 +577,9 @@ function functions.AddItemToOverflowContainer(player,itemId,itemName,amount,item
 end
 
 function functions.BuyItemForContainer(player,itemName,amount)
+	if not canPurchase(player) then
+		return false
+	end
 	local profile = Data[player]
 	if (profile == nil) then return nil end
 
@@ -3618,6 +3636,9 @@ function functions.RemoveSellingItem(player,itemId,amount)
 end
 
 function functions.BuyPlayersItem(player,storeOwner,itemId,totalPrice,amount)
+	if not canPurchase(player) then
+		return false
+	end
 	local storeOwnersItems = functions.GetSelling(storeOwner)
 
 	if (not storeOwnersItems) then
