@@ -10,6 +10,11 @@
 		context.questService = QuestService (for quest state, flags, items, rep)
 ]]
 
+local ServerScriptService = game:GetService("ServerScriptService")
+local EffectQueryService = require(
+	ServerScriptService:WaitForChild("EffectSystem"):WaitForChild("EffectQueryService")
+)
+
 local DialogConditions = {}
 DialogConditions._registry = {}
 
@@ -120,6 +125,23 @@ DialogConditions.Register("QuestStepCompleted", function(context, args)
 	if not questState then return false end
 	local stepState = questState.steps[args.stepId]
 	return stepState and stepState.completed == true
+end)
+
+DialogConditions.Register("HasEffect", function(context, args)
+	return EffectQueryService.HasEffect(context.player, args.effectName)
+end)
+
+DialogConditions.Register("DoesNotHaveEffect", function(context, args)
+	return not EffectQueryService.HasEffect(context.player, args.effectName)
+end)
+
+DialogConditions.Register("CanPerform", function(context, args)
+	return EffectQueryService.CanPerform(context.player, args.action)
+end)
+
+DialogConditions.Register("CannotPerform", function(context, args)
+	local allowed = EffectQueryService.CanPerform(context.player, args.action)
+	return not allowed
 end)
 
 return DialogConditions

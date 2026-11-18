@@ -45,27 +45,6 @@ local function removeOnExitFor(folder: Instance): boolean
 	return Config.Defaults.RemoveOnExit
 end
 
-local function hasAnotherClaim(player: Player, effectName: string, excludedFolder: Instance): boolean
-	for folder, claims in pairs(activeClaims) do
-		if folder ~= excludedFolder and claims[player] == effectName then
-			return true
-		end
-	end
-	return false
-end
-
-local function removeOwnedEffect(player: Player, effectName: string)
-	if not player.Parent then
-		return
-	end
-	local playerEffects = effectsFunctions.GetEffects(player)
-	local runtimeEffect = playerEffects and playerEffects[effectName]
-	local source = runtimeEffect and runtimeEffect.Effect and runtimeEffect.Effect.Source
-	if typeof(source) == "string" and string.sub(source, 1, #Config.SourcePrefix) == Config.SourcePrefix then
-		effectsFunctions.RemoveEffect(player, effectName)
-	end
-end
-
 local function exitZone(player: Player, folder: Instance)
 	local claims = activeClaims[folder]
 	local effectName = claims and claims[player]
@@ -74,8 +53,8 @@ local function exitZone(player: Player, folder: Instance)
 	end
 	claims[player] = nil
 
-	if removeOnExitFor(folder) and not hasAnotherClaim(player, effectName, folder) then
-		removeOwnedEffect(player, effectName)
+	if removeOnExitFor(folder) and player.Parent then
+		effectsFunctions.RemoveEffect(player, effectName, sourceFor(folder))
 	end
 
 	if Config.Debug then

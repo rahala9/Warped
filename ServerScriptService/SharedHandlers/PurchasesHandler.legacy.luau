@@ -9,8 +9,18 @@ local GamePassFunctions = require(ServerScriptService.Data.DataGamePassFunctions
 local SubscriptionFunctions = require(ServerScriptService.Data.DataSubscriptionFunctions)
 local gumsballsLoot = require(ReplicatedStorage:WaitForChild("Loot"):WaitForChild("GumballsLoot"))
 local Debris = game:GetService("Debris")
+local EffectQueryService = require(
+	ServerScriptService:WaitForChild("EffectSystem"):WaitForChild("EffectQueryService")
+)
+local MessagePlayerEvent = ReplicatedStorage:WaitForChild("SharedRemotes"):WaitForChild("MessagePlayer")
 
 local R = Random.new(os.time())
+local RESTRICTED_PURCHASE_PROMPTS = {
+	AddToCart = true,
+	BuyItem = true,
+	BuyItemForContainer = true,
+	BuyGumball = true,
+}
 
 local function GetRandomItem(weightedItems)
 	local sum = 0
@@ -58,6 +68,14 @@ buyItemEvent.OnServerEvent:Connect(function(player,itemName)
 end)
 
 local function onPromptTriggered(promptObject, player)
+	if RESTRICTED_PURCHASE_PROMPTS[promptObject.Name] then
+		local allowed, message = EffectQueryService.CanPerform(player, "Purchase")
+		if not allowed then
+			MessagePlayerEvent:FireClient(player, message)
+			return
+		end
+	end
+
 	if (promptObject.Name == "AddToCart") then
 		
 		if (promptObject.Enabled == false) or (promptObject:GetAttribute("Amount") and promptObject:GetAttribute("Amount") == 0) then

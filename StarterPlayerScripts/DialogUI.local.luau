@@ -15,9 +15,17 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
+local CloseButtonStyle = require(
+	ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("UI"):WaitForChild("CloseButtonStyle")
+)
+local DialogInputContextFactory = require(
+	ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("UI"):WaitForChild("DialogInputContextFactory")
+)
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
+local inputRoot = playerGui:WaitForChild("SharedGUI"):WaitForChild("InputContexts")
+local dialogContext = DialogInputContextFactory.Ensure(inputRoot)
 
 -- ── Remotes ───────────────────────────────────────────────────────────────────
 local DialogRemotesFolder = ReplicatedStorage:WaitForChild("DialogRemotes", 10)
@@ -119,29 +127,8 @@ local accentBar = make("Frame", {
 
 -- X close button
 local closeBtn = make("TextButton", {
-	Name = "CloseBtn",
-	Size = UDim2.new(0, 24, 0, 24),
-	Position = UDim2.new(1, -32, 0, 8),
-	BackgroundColor3 = COLORS.OPTION_BG,
-	BorderSizePixel = 0,
-	Text = "✕",
-	TextColor3 = COLORS.ACCENT,
-	Font = Enum.Font.GothamBold,
-	TextSize = 12,
-	AutoButtonColor = false,
-	ZIndex = 15,
 }, panel)
-makeCorner(closeBtn, 4)
-makeStroke(closeBtn, COLORS.OPTION_BORDER, 1)
-
-closeBtn.MouseEnter:Connect(function()
-	closeBtn.BackgroundColor3 = COLORS.OPTION_HOVER
-	closeBtn.TextColor3 = COLORS.TEXT_HOVER
-end)
-closeBtn.MouseLeave:Connect(function()
-	closeBtn.BackgroundColor3 = COLORS.OPTION_BG
-	closeBtn.TextColor3 = COLORS.ACCENT
-end)
+CloseButtonStyle.Apply(closeBtn)
 
 -- NPC name label
 local npcNameLabel = make("TextLabel", {
@@ -208,13 +195,16 @@ local function typewriteText(label, fullText, callback)
 		typewriterThread = nil
 	end
 
-	label.Text = ""
+	label.Text = fullText
+	label.MaxVisibleGraphemes = 0
 
 	typewriterThread = task.spawn(function()
-		for i = 1, #fullText do
-			label.Text = string.sub(fullText, 1, i)
+		local characterCount = utf8.len(fullText) or #fullText
+		for i = 1, characterCount do
+			label.MaxVisibleGraphemes = i
 			task.wait(TYPEWRITER_SPEED)
 		end
+		label.MaxVisibleGraphemes = -1
 		typewriterThread = nil
 		if callback then callback() end
 	end)
@@ -226,6 +216,7 @@ local function skipTypewriter(label, fullText)
 		typewriterThread = nil
 	end
 	label.Text = fullText
+	label.MaxVisibleGraphemes = -1
 end
 
 -- ── Layout calculation ────────────────────────────────────────────────────────
@@ -259,7 +250,7 @@ local function buildOptions(options)
 	for i, option in ipairs(options or {}) do
 		local btn = make("TextButton", {
 			Name = "Option_" .. i,
-			Size = UDim2.new(1, 0, 0, 32),
+			Size = UDim2.new(1, 0, 0, 38),
 			BackgroundColor3 = COLORS.OPTION_BG,
 			BorderSizePixel = 0,
 			Text = "",
@@ -270,23 +261,55 @@ local function buildOptions(options)
 		makeCorner(btn, 5)
 		makeStroke(btn, COLORS.OPTION_BORDER, 1)
 
-		-- Number prefix
-		make("TextLabel", {
-			Size = UDim2.new(0, 24, 1, 0),
-			Position = UDim2.new(0, 8, 0, 0),
-			BackgroundTransparency = 1,
-			TextColor3 = COLORS.ACCENT,
-			Font = FONT_HINT,
-			TextSize = 11,
-			Text = tostring(i) .. ".",
-			TextXAlignment = Enum.TextXAlignment.Left,
+		-- Raised keyboard keycap. This is drawn from UI primitives so it remains
+		-- crisp and automatically supports every numbered dialog option.
+		local keyShadow = make("Frame", {
+			Name = "KeyShadow",
+			Size = UDim2.fromOffset(27, 25),
+			Position = UDim2.new(0, 8, 0.5, -10),
+			BackgroundColor3 = Color3.fromRGB(2, 9, 18),
+			BorderSizePixel = 0,
 			ZIndex = 13,
 		}, btn)
+		makeCorner(keyShadow, 4)
+
+		local keycap = make("Frame", {
+			Name = "Keycap",
+			Size = UDim2.fromOffset(27, 25),
+			Position = UDim2.new(0, 8, 0.5, -13),
+			BackgroundColor3 = Color3.fromRGB(10, 24, 42),
+			BorderSizePixel = 0,
+			ZIndex = 14,
+		}, btn)
+		makeCorner(keycap, 4)
+		makeStroke(keycap, COLORS.ACCENT, 1.5)
+
+		make("Frame", {
+			Name = "TopHighlight",
+			Size = UDim2.new(1, -8, 0, 1),
+			Position = UDim2.new(0, 4, 0, 4),
+			BackgroundColor3 = Color3.fromRGB(150, 240, 255),
+			BackgroundTransparency = 0.35,
+			BorderSizePixel = 0,
+			ZIndex = 15,
+		}, keycap)
+
+		make("TextLabel", {
+			Size = UDim2.fromScale(1, 1),
+			BackgroundTransparency = 1,
+			TextColor3 = COLORS.TEXT_HOVER,
+			Font = Enum.Font.GothamBold,
+			TextSize = 14,
+			Text = tostring(i),
+			TextXAlignment = Enum.TextXAlignment.Center,
+			TextYAlignment = Enum.TextYAlignment.Center,
+			ZIndex = 16,
+		}, keycap)
 
 		-- Option text
 		local optionLabel = make("TextLabel", {
-			Size = UDim2.new(1, -36, 1, 0),
-			Position = UDim2.new(0, 32, 0, 0),
+			Size = UDim2.new(1, -52, 1, 0),
+			Position = UDim2.new(0, 45, 0, 0),
 			BackgroundTransparency = 1,
 			TextColor3 = COLORS.TEXT_OPTION,
 			Font = FONT_OPTION,
@@ -327,8 +350,10 @@ local function closeDialog()
 	end
 
 	isOpen = false
+	dialogContext.Enabled = false
 	screenGui.Enabled = false
 	npcTextLabel.Text = ""
+	npcTextLabel.MaxVisibleGraphemes = -1
 	npcNameLabel.Text = ""
 	currentFullText = ""
 
@@ -341,18 +366,33 @@ local function openDialog(payload)
 	if not payload then return end
 
 	isOpen = true
+	dialogContext.Enabled = true
 	screenGui.Enabled = true
 
 	npcNameLabel.Text = payload.npcDisplayName or payload.npcId or "???"
 	currentFullText = payload.npcText or ""
 
 	buildOptions(payload.options)
+	-- Lay out the complete text while it is hidden, then reveal graphemes. This
+	-- prevents typed lines from outrunning the panel's clipped height.
+	npcTextLabel.Text = currentFullText
+	npcTextLabel.MaxVisibleGraphemes = 0
+	layoutPanel()
 	typewriteText(npcTextLabel, currentFullText, function()
 		layoutPanel()
 	end)
+end
 
-	-- Initial layout with empty text, will re-layout when typewriter finishes
-	layoutPanel()
+for optionIndex = 1, 9 do
+	local action = dialogContext:WaitForChild("SelectDialogOptionAction" .. optionIndex)
+	action.Pressed:Connect(function()
+		if not isOpen or not SelectOptionRE then
+			return
+		end
+		if optionsFrame:FindFirstChild("Option_" .. optionIndex) then
+			SelectOptionRE:FireServer(optionIndex)
+		end
+	end)
 end
 
 closeBtn.MouseButton1Click:Connect(function()
@@ -375,19 +415,6 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		end
 	end
 
-	-- Number keys to select options (1-9)
-	local keyNumber = nil
-	if input.KeyCode.Value >= Enum.KeyCode.One.Value and input.KeyCode.Value <= Enum.KeyCode.Nine.Value then
-		keyNumber = input.KeyCode.Value - Enum.KeyCode.One.Value + 1
-	end
-
-	if keyNumber and SelectOptionRE then
-		-- Check if this option exists
-		local btn = optionsFrame:FindFirstChild("Option_" .. keyNumber)
-		if btn then
-			SelectOptionRE:FireServer(keyNumber)
-		end
-	end
 end)
 
 -- ── Event listeners ───────────────────────────────────────────────────────────

@@ -2,6 +2,13 @@ local effects = {
 	["Poison"] = {
 		Name = "Poison",
 		Description = "Low damage over long time",
+		Duration = 20,
+		TickInterval = 1,
+		Stacking = {Mode="Ignore", MaxStacks=1},
+		Behaviors = {
+			{Type="DamageOverTime", Damage=1},
+		},
+		-- Retained temporarily because enemy effects still consume these fields.
 		Effect = {Type="Health",Action="DOT",Amount=1,TimeInEffect=20,TimeStarted=0,CurrentEffectTime=20},
 		Source = nil,
 		Deaths = {"Poisoned", "Was it something he ate?"},
@@ -22,6 +29,11 @@ local effects = {
 	["Slow"] = {
 		Name = "Slow",
 		Description = "Slow speed",
+		Duration = -1,
+		Stacking = {Mode="Ignore", MaxStacks=1},
+		Behaviors = {
+			{Type="MovementModifier", Operation="ClampMax", Value=10, ScaleWithSourceLevel=false},
+		},
 		Effect = {Type="Movement",Action="Movement",Amount=10,TimeInEffect=-1,TimeStarted=0,CurrentEffectTime=0},
 		Source = nil,
 		Deaths = {},
@@ -32,6 +44,11 @@ local effects = {
 	["Speed"] = {
 		Name = "Speed",
 		Description = "Increase speed",
+		Duration = 60,
+		Stacking = {Mode="Refresh", MaxStacks=1},
+		Behaviors = {
+			{Type="MovementModifier", Operation="ClampMin", Value=17, ScaleWithSourceLevel=false},
+		},
 		Effect = {Type="Movement",Action="Movement",Amount=17,TimeInEffect=60,TimeStarted=0,CurrentEffectTime=60},
 		Source = nil,
 		Deaths = {},
@@ -42,21 +59,16 @@ local effects = {
 	["SwimSpeed"] = {
 		Name = "SwimSpeed",
 		Description = "Increase swim speed",
+		Duration = 60,
+		Stacking = {Mode="Refresh", MaxStacks=1},
+		Behaviors = {
+			{Type="MovementModifier", Operation="ClampMin", Value=17, ScaleWithSourceLevel=false},
+		},
 		Effect = {Type="Movement",Action="Movement",Amount=17,TimeInEffect=60,TimeStarted=0,CurrentEffectTime=60},
 		Source = nil,
 		Deaths = {},
 		ImageOffsetX = 0,
 		ImageOffsetY = 0,
-	};
-
-	["Biohazard"] = {
-		Name = "Biohazard",
-		Description = "You messed up",
-		Effect = {Type="Health",Action="DOT",Amount=100,TimeInEffect=60,TimeStarted=0,CurrentEffectTime=60},
-		Source = nil,
-		Deaths = {"Touched something disgusting", "Bathed in green water","Biohazard"},
-		ImageOffsetX = 5*64,
-		ImageOffsetY = 2*64,
 	};
 
 	["Kuato"] = {
@@ -73,6 +85,13 @@ local effects = {
 	["SmallBleed"] = {
 		Name = "SmallBleed",
 		Description = "Small damage over long time",
+		Duration = 20,
+		TickInterval = 1,
+		Stacking = {Mode="Ignore", MaxStacks=1},
+		Behaviors = {
+			{Type="DamageOverTime", Damage=1},
+		},
+		-- Retained temporarily because enemy effects still consume these fields.
 		Effect = {Type="Health",Action="DOT",Amount=1,TimeInEffect=20,TimeStarted=0,CurrentEffectTime=20},
 		Source = nil,
 		Deaths = {"Bled out", "Guess he needed that blood"},
@@ -83,6 +102,13 @@ local effects = {
 	["Bleed"] = {
 		Name = "Bleed",
 		Description = "Medium damage over long time",
+		Duration = 20,
+		TickInterval = 1,
+		Stacking = {Mode="Ignore", MaxStacks=1},
+		Behaviors = {
+			{Type="DamageOverTime", Damage=8},
+		},
+		-- Retained temporarily because enemy effects still consume these fields.
 		Effect = {Type="Health",Action="DOT",Amount=8,TimeInEffect=20,TimeStarted=0,CurrentEffectTime=20},
 		Source = nil,
 		Deaths = {"Bled out", "Guess he needed that blood"},
@@ -93,6 +119,13 @@ local effects = {
 	["Hemorrhage"] = {
 		Name = "Hemorrhage",
 		Description = "Large damage over short time",
+		Duration = 5,
+		TickInterval = 1,
+		Stacking = {Mode="Ignore", MaxStacks=1},
+		Behaviors = {
+			{Type="DamageOverTime", Damage=15},
+		},
+		-- Retained temporarily because enemy effects still consume these fields.
 		Effect = {Type="Health",Action="DOT",Amount=15,TimeInEffect=5,TimeStarted=0,CurrentEffectTime=5},
 		Source = nil,
 		Deaths = {"Human Blood Shower", "Well color him red"},
@@ -263,6 +296,11 @@ local effects = {
 	["Trapped"] = {
 		Name = "Trapped",
 		Description = "You aint going nowhere",
+		Duration = 10,
+		Stacking = {Mode="Refresh", MaxStacks=1},
+		Behaviors = {
+			{Type="MovementModifier", Operation="Immobilize"},
+		},
 		Effect = {Type="Movement",Action="Set",Amount=0,TimeInEffect=10,TimeStarted=0,CurrentEffectTime=10},
 		Source = nil,
 		Deaths = {},
@@ -273,7 +311,13 @@ local effects = {
 	["WebTrapped"] = {
 		Name = "WebTrapped",
 		Description = "Sticky Ain't It?",
-		Effect = {Type="Movement",Action="Set",Amount=0,TimeInEffect=5,TimeStarted=0,CurrentEffectTime=5,VFX="webTrap"},
+		Duration = 5,
+		Stacking = {Mode="Refresh", MaxStacks=1},
+		Behaviors = {
+			{Type="MovementModifier", Operation="Immobilize"},
+			{Type="CharacterVFX", Template="webTrap"},
+		},
+		Effect = {Type="Movement",Action="Set",Amount=0,TimeInEffect=5,TimeStarted=0,CurrentEffectTime=5},
 		Source = nil,
 		Deaths = {},
 		ImageOffsetX = 5*64,
@@ -283,7 +327,13 @@ local effects = {
 	["SlimeWebTrapped"] = {
 		Name = "SlimeWebTrapped",
 		Description = "Sticky Ain't It?",
-		Effect = {Type="Movement",Action="Set",Amount=0,TimeInEffect=5,TimeStarted=0,CurrentEffectTime=5,VFX="slimeTrap"},
+		Duration = 5,
+		Stacking = {Mode="Refresh", MaxStacks=1},
+		Behaviors = {
+			{Type="MovementModifier", Operation="Immobilize"},
+			{Type="CharacterVFX", Template="slimeTrap"},
+		},
+		Effect = {Type="Movement",Action="Set",Amount=0,TimeInEffect=5,TimeStarted=0,CurrentEffectTime=5},
 		Source = nil,
 		Deaths = {},
 		ImageOffsetX = 5*64,
@@ -333,7 +383,15 @@ local effects = {
 	["OnFire"] = {
 		Name = "OnFire",
 		Description = "Do you smell something. Someone must be BBQing",
-		Effect = {Type="Health",Action="DOT",Amount=5,TimeInEffect=20,TimeStarted=0,CurrentEffectTime=20,VFX="Fire"},
+		Duration = 20,
+		TickInterval = 1,
+		Stacking = {Mode="Ignore", MaxStacks=1},
+		Behaviors = {
+			{Type="DamageOverTime", Damage=5},
+			{Type="CharacterVFX", Template="Fire"},
+		},
+		-- Retained temporarily because enemy effects still consume these fields.
+		Effect = {Type="Health",Action="DOT",Amount=5,TimeInEffect=20,TimeStarted=0,CurrentEffectTime=20},
 		Source = nil,
 		Deaths = {"Melted","Playing with fire is dangerous","PLayed Human Marshmellow"},
 		ImageOffsetX = 0,
@@ -353,7 +411,28 @@ local effects = {
 	["Stink"] = {
 		Name = "Stink",
 		Description = "Nobody will talk to you while you smell like that!",
-		Effect = {Type="Restriction",Action="Prevent",Amount=0,TimeInEffect=60,TimeStarted=0,CurrentEffectTime=60,VFX="Flies"},
+		Duration = 60,
+		TickInterval = 1,
+		Stacking = {Mode="Refresh", MaxStacks=1},
+		Presentation = {
+			Description = "Nobody will talk to you while you smell like that!",
+			ShowTimer = true,
+			Icon = {OffsetX=1*64, OffsetY=1*64},
+		},
+		-- Compatibility timing fields remain for older consumers, but every Stink
+		-- outcome is now declared independently in Behaviors.
+		Effect = {Type="Composed",Action="None",Amount=0,TimeInEffect=60,TimeStarted=0,CurrentEffectTime=60},
+		Behaviors = {
+			{Type="CharacterVFX", Template="Flies"},
+			-- Net exposure is +0.25/sec after the meter's natural -0.10/sec recovery,
+			-- resulting in 15 Biohazard over a full 60-second Stink duration.
+			{Type="MeterRate", Meter="Biohazard", RatePerSecond=0.35},
+			{
+				Type="Restriction",
+				Actions={"NPCInteraction", "Purchase"},
+				Message="You smell awful. Come back after you've cleaned up.",
+			},
+		},
 		Source = nil,
 		Deaths = {},
 		ImageOffsetX = 1*64,
@@ -366,7 +445,7 @@ local effects = {
 		Effect = {Type="Mutation",Action="FlyHead",Amount=0,TimeInEffect=60,TimeStarted=0,CurrentEffectTime=60,ClientVisual=true},
 		Source = nil,
 		Deaths = {},
-		-- Reuse the populated TimeDistortion icon until Mutation has dedicated art.
+		-- Reuse this populated icon slot until Mutation has dedicated art.
 		ImageOffsetX = 3*64,
 		ImageOffsetY = 3*64,
 	};
@@ -374,7 +453,21 @@ local effects = {
 	["ElectricShock"] = {
 		Name = "ElectricShock",
 		Description = "High-voltage current is coursing through your suit.",
-		Effect = {Type="Health",Action="DOT",Amount=50,TimeInEffect=10,TimeStarted=0,CurrentEffectTime=10,VFX="Electricity",ClientVisual=true},
+		Duration = 3,
+		TickInterval = 1,
+		Stacking = {Mode="Refresh", MaxStacks=1},
+		Effect = {Type="Composed",Action="None",Amount=0,TimeInEffect=3,TimeStarted=0,CurrentEffectTime=3},
+		Behaviors = {
+			{
+				Type="DamageOverTime",
+				Damage=10,
+				DamageType="Electric",
+				DeathEffect="Electrocuted",
+				DeathEffectChanceKey="ElectricStatusChance",
+			},
+			{Type="CharacterVFX", Template="Electricity"},
+			{Type="ClientVisual"},
+		},
 		Source = nil,
 		Deaths = {"Zapped","Regular little Nicky Tesla","Shocked"},
 		ImageOffsetX = 1*64,
@@ -411,18 +504,6 @@ local effects = {
 		ImageOffsetY = 1*64,
 
 	};
-
-	["TimeDistortion"] = {
-		Name = "TimeDistortion",
-		Description = "You feel a sense of lost time",
-		Effect = {Type="CompassSpin",TimeInEffect=-1,TimeStarted=0,CurrentEffectTime=0},
-		Source = nil,
-		Deaths = {},
-		ImageOffsetX = 3*64,
-		ImageOffsetY = 3*64,
-
-	};
-
 
 	["Dumb"] = {
 		Name = "Dumb",

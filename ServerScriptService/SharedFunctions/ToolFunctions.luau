@@ -20,9 +20,30 @@ local Data = require(ServerScriptService.Data.Data)
 
 local functions = {}
 
+local function getBaseItemName(itemName)
+	if typeof(itemName) ~= "string" then
+		return itemName
+	end
+
+	-- Non-stackable/container instances use IDs such as SciColaCan_6. Prefer an
+	-- exact definition first so legitimate item names containing underscores are
+	-- never shortened. Only fall back to removing a numeric instance suffix.
+	if itemsmodule[itemName] then
+		return itemName
+	end
+
+	local baseItemName = string.match(itemName, "^(.-)_%d+$")
+	if baseItemName and itemsmodule[baseItemName] then
+		return baseItemName
+	end
+
+	return itemName
+end
+
 
 
 function functions.GetToolHandle(player,heldToolName)
+	heldToolName = getBaseItemName(heldToolName)
 
 	if (not itemsmodule[heldToolName]) then
 		warn("ToolFunctions.GetToolHandle Item Not Found: playerName,itemName",player.Name,heldToolName)
@@ -56,8 +77,7 @@ end
 function functions.AddToolToHand(player,itemName,itemModel)
 
 	--Handle container or non stackable unique custom ids
-	local itemPieces = string.split(itemName,"_")
-	itemName = itemPieces[1]
+	itemName = getBaseItemName(itemName)
 	
 	if (not itemsmodule[itemName]) then
 		warn("ToolFunctions.AddToolToHand Item Not Found: playerName,itemName",player.Name,itemName)
@@ -364,6 +384,7 @@ function RemoveCampBillboards(player)
 end
 
 function functions.RemoveToolFromHand(player,itemName)
+	itemName = getBaseItemName(itemName)
 
 	if (not itemsmodule[itemName]) then
 		return

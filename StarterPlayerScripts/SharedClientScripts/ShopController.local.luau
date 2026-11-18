@@ -2,6 +2,9 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ProximityPromptService = game:GetService("ProximityPromptService")
 local TweenService = game:GetService("TweenService")
+local CloseButtonStyle = require(
+	ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("UI"):WaitForChild("CloseButtonStyle")
+)
 
 local itemsmodule = require(ReplicatedStorage:WaitForChild("InventorySystem"):WaitForChild("Items"))
 
@@ -31,6 +34,8 @@ local SHOP_ITEMS = {
 }
 
 local PURCHASE_REMOTE_NAME = "ShopPurchase"
+local ACCESS_REMOTE_NAME = "RequestShopAccess"
+local requestShopAccess = ReplicatedStorage:WaitForChild(ACCESS_REMOTE_NAME)
 
 -- ============================================================
 -- STATE
@@ -155,15 +160,8 @@ local function buildGui(shopName)
 	titleLabel.Parent = mainFrame
 
 	closeButton = Instance.new("TextButton")
-	closeButton.Size = UDim2.new(0, 36, 0, 36)
-	closeButton.Position = UDim2.new(1, -44, 0, 6)
-	closeButton.BackgroundColor3 = Color3.fromRGB(20, 28, 45)
-	closeButton.BorderSizePixel = 0
-	closeButton.Text = "✕"
-	closeButton.TextColor3 = Color3.fromRGB(180, 180, 200)
-	closeButton.TextSize = 16
-	closeButton.Font = Enum.Font.Code
 	closeButton.Parent = mainFrame
+	CloseButtonStyle.Apply(closeButton)
 
 	local divider = Instance.new("Frame")
 	divider.Size = UDim2.new(1, -32, 0, 1)
@@ -492,8 +490,11 @@ local function onPromptTriggered(promptObject)
 	debounce = true
 
 	if promptObject.Name == "Shop" then
-		local shopName = promptObject:GetAttribute("ShopName")
-		openShop(shopName)
+		local allowed = requestShopAccess:InvokeServer(promptObject)
+		if allowed then
+			local shopName = promptObject:GetAttribute("ShopName")
+			openShop(shopName)
+		end
 	end
 
 	debounce = false

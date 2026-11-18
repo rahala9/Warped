@@ -6,8 +6,15 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 local InventoryFunctions = require(ServerScriptService.InventorySystem.DataInventoryFunctions)
 local itemsmodule = require(ReplicatedStorage:WaitForChild("InventorySystem"):WaitForChild("Items"))
+local EffectQueryService = require(
+	ServerScriptService:WaitForChild("EffectSystem"):WaitForChild("EffectQueryService")
+)
+local DialogService = require(
+	ServerScriptService:WaitForChild("SharedServices"):WaitForChild("DialogSystem"):WaitForChild("DialogService")
+)
 
 local PURCHASE_REMOTE_NAME = "ShopPurchase"
+local ACCESS_REMOTE_NAME = "RequestShopAccess"
 
 -- ============================================================
 -- PLAYER CURRENCY (replace with your own DataStore solution)
@@ -33,6 +40,39 @@ if not purchaseRemote then
 	purchaseRemote = Instance.new("RemoteEvent")
 	purchaseRemote.Name = PURCHASE_REMOTE_NAME
 	purchaseRemote.Parent = ReplicatedStorage
+end
+
+local accessRemote = ReplicatedStorage:FindFirstChild(ACCESS_REMOTE_NAME)
+if accessRemote and not accessRemote:IsA("RemoteFunction") then
+	warn("ShopServer: " .. ACCESS_REMOTE_NAME .. " must be a RemoteFunction")
+	accessRemote:Destroy()
+	accessRemote = nil
+end
+if not accessRemote then
+	accessRemote = Instance.new("RemoteFunction")
+	accessRemote.Name = ACCESS_REMOTE_NAME
+	accessRemote.Parent = ReplicatedStorage
+end
+
+accessRemote.OnServerInvoke = function(player, promptObject)
+	if typeof(promptObject) ~= "Instance"
+		or not promptObject:IsA("ProximityPrompt")
+		or promptObject.Name ~= "Shop"
+		or not promptObject:IsDescendantOf(workspace)
+	then
+		return false
+	end
+
+	local allowed, message = EffectQueryService.CanPerform(player, "Purchase")
+	if not allowed then
+		local npcName = promptObject:GetAttribute("NPCName")
+		local displayName = promptObject:GetAttribute("ShopkeeperName")
+			or npcName
+			or "Shopkeeper"
+		DialogService:ShowRestrictionDialog(player, npcName or "Shopkeeper", displayName, message)
+		return false
+	end
+	return true
 end
 
 -- ============================================================
