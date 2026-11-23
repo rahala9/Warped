@@ -26,6 +26,9 @@ local Players = game:GetService("Players")
 -- Definition Modules
 ------------------------------------------------------------------
 local enemiesModule = require(ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("Enemies"))
+local SecurityResponseConfig = require(
+	ReplicatedStorage:WaitForChild("SecurityResponseSystem"):WaitForChild("Config")
+)
 local EnemySpawningConfig = require(ServerScriptService:WaitForChild("SharedServices"):WaitForChild("EnemySpawningConfig"))
 local EnemyCombatFunctions = require(ServerScriptService:WaitForChild("SharedFunctions"):WaitForChild("EnemyCombatFunctions"))
 
@@ -48,6 +51,15 @@ local spawnerCfg = (configId and EnemySpawningConfig.Spawners and EnemySpawningC
 local AIConfig = (spawnerCfg and spawnerCfg.AIConfig) or {}
 
 local currentTarget: Player? = nil
+local lastSecurityTargetUserId: number? = nil
+
+local function securityResponse()
+	return npc:GetAttribute(SecurityResponseConfig.GuardResponseAttribute)
+end
+
+local function isSecurityArrestMode()
+	return securityResponse() == "Arrest"
+end
 
 ------------------------------------------------------------------
 -- THREAT SYSTEM
@@ -736,6 +748,51 @@ local function changeState(name: string)
 	end
 end
 
+-- Security assignments are written by SecurityGuardService. Keeping this as a
+-- tiny attribute interface lets the existing pathfinding/combat AI remain the
+-- single owner of NPC movement and animation.
+local function syncSecurityTarget()
+	local assignedUserId = npc:GetAttribute(SecurityResponseConfig.GuardTargetAttribute)
+	if typeof(assignedUserId) == "number" then
+		local assignedPlayer = Players:GetPlayerByUserId(assignedUserId)
+		if lastSecurityTargetUserId and lastSecurityTargetUserId ~= assignedUserId then
+			threatTable[lastSecurityTargetUserId] = nil
+		end
+		lastSecurityTargetUserId = assignedUserId
+		if not isPlayerAlive(assignedPlayer) then return end
+		if currentState and currentState.Name == "Held" then return end
+
+		if currentTarget ~= assignedPlayer then
+			currentTarget = assignedPlayer
+			changeState("Pursue")
+		elseif isSecurityArrestMode()
+			and currentState
+			and currentState.Name ~= "Pursue"
+		then
+			changeState("Pursue")
+		elseif currentState
+			and (currentState.Name == "Idle" or currentState.Name == "Walk"
+				or currentState.Name == "Run" or currentState.Name == "Linger")
+		then
+			changeState("Pursue")
+		end
+		return
+	end
+
+	if lastSecurityTargetUserId then
+		-- Custody/expiration fully releases the assignment, including any threat
+		-- accrued while the player was responding to that guard.
+		threatTable[lastSecurityTargetUserId] = nil
+		if currentTarget and currentTarget.UserId == lastSecurityTargetUserId then
+			currentTarget = nil
+			if currentState and currentState.Name ~= "Held" and currentState.Name ~= "Idle" then
+				changeState("Idle")
+			end
+		end
+	end
+	lastSecurityTargetUserId = nil
+end
+
 ------------------------------------------------------------------
 -- THREAT SYSTEM FUNCTIONS
 ------------------------------------------------------------------
@@ -1152,7 +1209,7 @@ states.Pursue = State.new(
 
 		local targetHRP = getTargetHRP(currentTarget)
 
-		if targetHRP and canUseRangedAgainstTarget(targetHRP) then
+		if targetHRP and not isSecurityArrestMode() and canUseRangedAgainstTarget(targetHRP) then
 			dprint("Pursue start: target is already shootable, switching to ranged")
 			changeState("AttackRanged")
 			return
@@ -1191,7 +1248,16 @@ states.Pursue = State.new(
 		local combatRole = enemyDef.CombatRole or "melee"
 		local meleeRange = enemyDef.MeleeRange or 5
 
-		if isRanged then
+		-- Arrest assignments close the distance but never enter an attack state.
+		-- SecurityGuardService completes custody when the guard is close enough.
+		if isSecurityArrestMode()
+			and distance <= math.max(SecurityResponseConfig.GuardArrestDistance - 1, 1)
+		then
+			nav:Clear()
+			cancelHumanoidMove()
+			humanoid.WalkSpeed = 0
+			return
+		elseif not isSecurityArrestMode() and isRanged then
 			if combatRole == "melee" then
 				if distance <= meleeRange then
 					dprint("Entering melee attack (melee role)")
@@ -1229,7 +1295,7 @@ states.Pursue = State.new(
 					end
 				end
 			end
-		else
+		elseif not isSecurityArrestMode() then
 			if distance <= meleeRange then
 				dprint("Entering melee attack (melee-only)")
 				changeState("AttackMelee")
@@ -1296,7 +1362,10 @@ states.Pursue = State.new(
 				end
 			end
 
-			if repathAttempts >= MAX_REPATH_ATTEMPTS and canUseRangedAgainstTarget(targetHRP) then
+			if not isSecurityArrestMode()
+				and repathAttempts >= MAX_REPATH_ATTEMPTS
+				and canUseRangedAgainstTarget(targetHRP)
+			then
 				dprint("Path failed, but ranged LOS is valid - attacking instead of giving up")
 				changeState("AttackRanged")
 				return
@@ -1309,16 +1378,18 @@ states.Pursue = State.new(
 			end
 
 			if distance > GIVE_UP_DISTANCE and repathAttempts >= MAX_REPATH_ATTEMPTS then
-				if canUseRangedAgainstTarget(targetHRP) then
+				if not isSecurityArrestMode() and canUseRangedAgainstTarget(targetHRP) then
 					dprint("Target unreachable by path, but ranged LOS is valid - attacking upward")
 					changeState("AttackRanged")
 					return
 				end
 
-				dprint("Target too far and unreachable - giving up")
-				currentTarget = nil
-				changeState("Idle")
-				return
+				if typeof(npc:GetAttribute(SecurityResponseConfig.GuardTargetAttribute)) ~= "number" then
+					dprint("Target too far and unreachable - giving up")
+					currentTarget = nil
+					changeState("Idle")
+					return
+				end
 			end
 		end
 	end,
@@ -1349,6 +1420,10 @@ states.AttackMelee = State.new(
 	end,
 
 	function()
+		if isSecurityArrestMode() then
+			changeState("Pursue")
+			return
+		end
 		local targetHRP = getTargetHRP(currentTarget)
 
 		if not targetHRP then
@@ -1659,6 +1734,10 @@ states.AttackRanged = State.new(
 	end,
 
 	function()
+		if isSecurityArrestMode() then
+			changeState("Pursue")
+			return
+		end
 		local targetHRP = getTargetHRP(currentTarget)
 
 		if not targetHRP then
@@ -2058,6 +2137,7 @@ task.spawn(function()
 
 		checkForPlayers()
 		checkHit()
+		syncSecurityTarget()
 		CheckHeld()
 
 		if currentState and currentState.OnUpdate then

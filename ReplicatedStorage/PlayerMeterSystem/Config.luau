@@ -7,8 +7,17 @@ local Config = {
 			MaximumAttribute = "MaxBiohazard",
 			Default = 0,
 			Maximum = 100,
+			ResetOnSpawn = true,
 			-- Exposure clears slowly when no effect is adding to it.
 			BaseRatePerSecond = -0.1,
+			-- Equipment can set this Player attribute from 0 (unprotected) to 1
+			-- (fully protected). It reduces positive exposure, not recovery.
+			ProtectionAttribute = "BiohazardProtection",
+			HealthDamage = {
+				Threshold = 80,
+				MinimumPerSecond = 2,
+				MaximumPerSecond = 12,
+			},
 
 			UI = {
 				Name = "BiohazardBar",

@@ -60,6 +60,10 @@ local function onPromptTriggered(promptObject, player)
 			--This is for picking something up that is already in game world
 			promptObject.Name = "DropTempHoldLive"
 			promptObject.ActionText = "Drop" 
+			if promptObject.Parent:GetAttribute("CargoJobId") then
+				promptObject.Style = Enum.ProximityPromptStyle.Custom
+				promptObject.KeyboardKeyCode = Enum.KeyCode.Q
+			end
 			
 			InventoryFunctions.AddTempHoldLive(player,promptObject.Parent.Parent.Name,promptObject.Parent.Parent) --Should go to Model
 			
@@ -81,6 +85,10 @@ local function onPromptTriggered(promptObject, player)
 	elseif (promptObject.Name == "DropTempHoldLive") then	
 		promptObject.Name = "TakeTempHoldLive"
 		promptObject.ActionText = "Pick Up" 
+		if promptObject.Parent:GetAttribute("CargoJobId") then
+			promptObject.Style = Enum.ProximityPromptStyle.Custom
+			promptObject.KeyboardKeyCode = Enum.KeyCode.E
+		end
 		InventoryFunctions.RemoveTempHoldLive(player,promptObject.Parent.Parent.Name,promptObject.Parent.Parent) 
 		
 		--Handled by zone handler now

@@ -1,5 +1,13 @@
 local ProfileTemplate = {
 	Money = 0,
+	-- Persistent ship ownership. Runtime ship models mirror this with the
+	-- OwnerUserId attribute while spawned.
+	OwnedShips = {},
+	Preferences = {
+		-- Cargo contract list order: "Ascending" is nearest first and
+		-- "Descending" is farthest first.
+		CargoDistanceSort = "Ascending",
+	},
 	Inventory = {
 		["Items"] = {},
 		["Tools"] = {},

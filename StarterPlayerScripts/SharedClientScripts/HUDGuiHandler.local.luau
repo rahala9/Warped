@@ -28,6 +28,7 @@ local GuiShownClientEvent = Remotes:WaitForChild("GuiShownClient")
 local GuiHiddenClientEvent = Remotes:WaitForChild("GuiHiddenClient")
 local UpdateHealthEvent = Remotes:WaitForChild("UpdateHealth")
 local PlayerHitEvent = Remotes:WaitForChild("PlayerHit")
+local MoneyUpdatedEvent = Remotes:WaitForChild("MoneyUpdated")
 
 -- GUI
 local SharedGUI = PlayerGui:WaitForChild("SharedGUI")
@@ -132,6 +133,61 @@ end)
 
 -- Request authoritative initial values after the listener is connected.
 UpdateHealthEvent:FireServer("Request")
+
+----------------------------------------------------------------
+-- Credits display (final C status slot)
+----------------------------------------------------------------
+local CREDITS_POSITION = UDim2.new(0, 79, 1, -17)
+local CREDITS_SIZE = UDim2.fromOffset(117, 14)
+local CREDITS_Z_INDEX = 98
+local CreditsDisplay = ToolbeltGui:FindFirstChild("CreditsDisplay")
+
+if not CreditsDisplay then
+	CreditsDisplay = Instance.new("Frame")
+	CreditsDisplay.Name = "CreditsDisplay"
+	CreditsDisplay.AnchorPoint = Vector2.new(0, 1)
+	CreditsDisplay.BackgroundColor3 = Color3.fromRGB(10, 10, 12)
+	CreditsDisplay.BackgroundTransparency = 0.08
+	CreditsDisplay.BorderSizePixel = 0
+	CreditsDisplay.ClipsDescendants = true
+	CreditsDisplay.Parent = ToolbeltGui
+
+	local value = Instance.new("TextLabel")
+	value.Name = "Value"
+	value.Size = UDim2.fromScale(1, 1)
+	value.BackgroundTransparency = 1
+	value.Font = Enum.Font.GothamBold
+	value.TextColor3 = Color3.fromRGB(235, 235, 220)
+	value.TextSize = 10
+	value.TextStrokeColor3 = Color3.fromRGB(20, 20, 15)
+	value.TextStrokeTransparency = 0.25
+	value.Parent = CreditsDisplay
+end
+
+CreditsDisplay.Visible = true
+CreditsDisplay.Position = CREDITS_POSITION
+CreditsDisplay.Size = CREDITS_SIZE
+CreditsDisplay.ZIndex = CREDITS_Z_INDEX
+CreditsDisplay.Value.Visible = true
+CreditsDisplay.Value.ZIndex = CREDITS_Z_INDEX + 1
+
+local function formatCredits(amount)
+	local digits = tostring(math.max(0, math.floor((tonumber(amount) or 0) + 0.5)))
+	local formatted = digits:reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
+	return "₵ " .. formatted
+end
+
+local function updateCredits(amount)
+	CreditsDisplay.Value.Text = formatCredits(amount)
+end
+
+MoneyUpdatedEvent.OnClientEvent:Connect(function(totalMoney)
+	updateCredits(totalMoney)
+end)
+LocalPlayer:GetAttributeChangedSignal("Credits"):Connect(function()
+	updateCredits(LocalPlayer:GetAttribute("Credits"))
+end)
+updateCredits(LocalPlayer:GetAttribute("Credits"))
 
 local HUDAnimatedImageLabel = HUDGui:WaitForChild("HUDAnimatedImageLabel")
 local HUDLargeImageLabel = HUDGui:WaitForChild("HUDLargeImageLabel")

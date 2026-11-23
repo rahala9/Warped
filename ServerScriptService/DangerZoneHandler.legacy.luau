@@ -91,26 +91,27 @@ Zones:OnLoaded("KillZone", function(zone)
 	
 end)
 
-Zones:OnLoaded("KillZoneLaserTrap1", function(zone)
-	local connection
-	connection = zone:OnPlayerEntered(function(enteredPlayer,zonePart)
-		if isHazardEnabled(zone, zonePart) then
-			print("Player:",enteredPlayer," entered a kill zone. zonePart:",zonePart.Name )	
-			PlayerHitEvent:Fire(enteredPlayer,9999999999,nil,nil,getLaserDeathContext(zone, zonePart))
-		end
+-- Laser doors and traps are data-driven by ZoneType. ZoneKey remains a unique
+-- identifier for each zone, but adding another laser hazard no longer requires
+-- another name-specific registration in this script.
+Zones:OnTypeLoaded("LaserHazard", function(zone, zoneFolder)
+	zone:OnPlayerEntered(function(enteredPlayer, zonePart)
+		if not isHazardEnabled(zone, zonePart) then return end
+
+		print(
+			"Player:",
+			enteredPlayer,
+			"entered laser hazard:",
+			zoneFolder:GetAttribute("ZoneKey") or zoneFolder.Name,
+			"zonePart:",
+			zonePart.Name
+		)
+		PlayerHitEvent:Fire(
+			enteredPlayer,
+			9999999999,
+			nil,
+			nil,
+			getLaserDeathContext(zone, zonePart)
+		)
 	end)
-
-
-end)
-
-Zones:OnLoaded("KillZoneLaserDoor1", function(zone)
-	local connection
-	connection = zone:OnPlayerEntered(function(enteredPlayer,zonePart)
-		if isHazardEnabled(zone, zonePart) then
-			print("Player:",enteredPlayer," entered a kill zone. zonePart:",zonePart.Name )	
-			PlayerHitEvent:Fire(enteredPlayer,9999999999,nil,nil,getLaserDeathContext(zone, zonePart))
-		end
-	end)
-
-
 end)

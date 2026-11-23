@@ -181,6 +181,10 @@ local EnemySpawningConfig = {}
 		MaxAlive = 10,                  -- Max concurrent enemies
 		RespawnInterval = 20,           -- Seconds between spawn attempts
 		CollectionTag = "TagName",      -- For tracking spawned enemies
+		AdditionalTags = {"RoleTag"},   -- Optional discovery tags
+		ModelAttributes = {              -- Optional role/config attributes
+			RoleName = "Example",
+		},
 		
 		-- Enemy Pool
 		EnemyPool = {
@@ -292,6 +296,10 @@ EnemySpawningConfig.Spawners = {
 		RespawnInterval = 30,
 		InitialSpawnCount = 3, --5
 		CollectionTag = "ZAP09FSpawn1",
+		AdditionalTags = {"SecurityGuard"},
+		ModelAttributes = {
+			SecurityJurisdiction = "Station Customs",
+		},
 
 		EnemyPool = {
 			{Type = "ZAP-09-F", Weight = 100}

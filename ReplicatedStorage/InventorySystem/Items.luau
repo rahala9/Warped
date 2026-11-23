@@ -1943,6 +1943,36 @@ local module = {
 
 }
 
+-- Delivery cargo is live Workspace cargo rather than ordinary inventory, but
+-- the shared hold system still needs an item definition for validation and UI
+-- state. Generate those definitions from the templates so adding Cargo5 (or a
+-- later cargo model) does not require another hard-coded registry entry.
+local cargoTemplates = ReplicatedStorage:WaitForChild("SharedClientAssets"):WaitForChild("Cargo")
+for _, template in ipairs(cargoTemplates:GetChildren()) do
+	if template:IsA("Model") and not module[template.Name] then
+		module[template.Name] = {
+			Name = template.Name,
+			DisplayName = template.Name,
+			Model = template.Name,
+			Level = 1,
+			Amount = 1,
+			Desc = "Unknown Cargo",
+			Type = ItemTypes.TempHold,
+			SubType = SubTypes.TempHold.None,
+			Traits = {},
+			NeedToContain = "Solid",
+			NotInventory = true,
+			Value = 0,
+			ImageOffsetX = 2 * 64,
+			ImageOffsetY = 8 * 64,
+			Trade = false,
+			Limit = 1,
+			LootType = LootTypes.Specific,
+			Rarity = Rarity.Uncommon,
+		}
+	end
+end
+
 local sources = {
 	require(ItemDefs:WaitForChild("Weapons")),
 	require(ItemDefs:WaitForChild("Artifacts")),

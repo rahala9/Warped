@@ -43,6 +43,20 @@ function ZoneRegistry:OnLoaded(zoneKey, callback)
 	if existing then
 		callback(existing)
 	end
+
+	local connected = true
+	return {
+		Disconnect = function()
+			if not connected then return end
+			connected = false
+			local listeners = self._listeners[zoneKey]
+			if not listeners then return end
+			local index = table.find(listeners, callback)
+			if index then
+				table.remove(listeners, index)
+			end
+		end,
+	}
 end
 
 function ZoneRegistry:OnTypeLoaded(zoneType, callback)

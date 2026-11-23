@@ -11,8 +11,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local player    = Players.LocalPlayer
 local PlayerGui = player:WaitForChild("PlayerGui")
 
-local GuiMessageFunctions = require(ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("GuiMessageFunctions"))
-
 -- ── Bindable for HUD refresh ──────────────────────────────────────────────────
 -- CargoHUD listens to this to immediately refresh when a job is accepted
 local cargoJobAccepted = ReplicatedStorage:FindFirstChild("CargoJobAccepted")
@@ -31,6 +29,7 @@ local RF_SpawnShip      = Remotes:WaitForChild("SpawnShip")
 local RF_DespawnShip    = Remotes:WaitForChild("DespawnShip")
 local RF_GetCargoJobs   = Remotes:WaitForChild("GetCargoJobs")
 local RF_AcceptCargoJob = Remotes:WaitForChild("AcceptCargoJob")
+local RF_SetCargoDistanceSort = Remotes:WaitForChild("SetCargoDistanceSort")
 
 -- ── UI Module ─────────────────────────────────────────────────────────────────
 local DockUI = require(script.Parent:WaitForChild("DockManagerUI"))
@@ -45,7 +44,7 @@ RE_OpenDockUI.OnClientEvent:Connect(function(dockId)
 
 	-- ── Case 1: NPC cargo ship is docked → show cargo contracts ───────────────
 	if state.isNPCShip then
-		local jobs, jobErr = RF_GetCargoJobs:InvokeServer(dockId)
+		local jobs, jobErr, cargoDistanceSort = RF_GetCargoJobs:InvokeServer(dockId)
 		if not jobs then
 			DockUI:ShowNotification("✗ Could not fetch cargo jobs: " .. tostring(jobErr), false)
 			return
@@ -67,6 +66,10 @@ RE_OpenDockUI.OnClientEvent:Connect(function(dockId)
 			timeRemaining  = timeRemaining,
 			slotsRemaining = state.slotsRemaining or 0,
 			cargoSlots     = state.cargoSlots or 1,
+			distanceSort   = cargoDistanceSort or "Ascending",
+			onDistanceSortChanged = function(direction)
+				return RF_SetCargoDistanceSort:InvokeServer(direction)
+			end,
 			onAccept = function(jobId)
 				local ok, msg = RF_AcceptCargoJob:InvokeServer(dockId, jobId)
 				DockUI:ShowNotification(ok and "✓ " .. msg or "✗ " .. msg, ok)

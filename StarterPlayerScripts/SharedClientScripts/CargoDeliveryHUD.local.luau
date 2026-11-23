@@ -18,6 +18,8 @@ local RightHUDManager = require(script.Parent:WaitForChild("RightHUDManager"))
 -- ── Remotes ───────────────────────────────────────────────────────────────────
 local Remotes           = ReplicatedStorage:WaitForChild("SharedRemotes"):WaitForChild("DockRemotes")
 local RF_GetPlayerCargo = Remotes:WaitForChild("GetPlayerCargo")
+local RF_CancelCargoJob = Remotes:WaitForChild("CancelCargoJob")
+local RE_CargoRiskChanged = Remotes:WaitForChild("CargoRiskChanged")
 
 local cargoJobAccepted  = ReplicatedStorage:WaitForChild("CargoJobAccepted", 10)
 
@@ -72,7 +74,7 @@ local RARITY_COLOR = {
 local FONT_HEADER   = Enum.Font.GothamBold
 local FONT_BODY     = Enum.Font.Gotham
 local FONT_MONO     = Enum.Font.Code
-local ROW_HEIGHT    = 100
+local ROW_HEIGHT    = 118
 local POLL_INTERVAL = 5
 
 -- ── Helpers ───────────────────────────────────────────────────────────────────
@@ -124,6 +126,25 @@ local function dangerColor(danger)
 	else return COLORS.ERROR end
 end
 
+local function hasRisk(job, riskName)
+	local risks = job.risks or {}
+	if (typeof(risks[riskName]) == "number" and risks[riskName] > 0) or risks[riskName] == true then
+		return true
+	end
+	for _, configuredRisk in ipairs(risks) do
+		if configuredRisk == riskName then return true end
+	end
+	return false
+end
+
+local function conditionColor(condition)
+	local normalized = math.clamp((condition or 0) / 100, 0, 1)
+	if normalized > 0.5 then
+		return COLORS.WARN:Lerp(COLORS.SUCCESS, (normalized - 0.5) * 2)
+	end
+	return COLORS.ERROR:Lerp(COLORS.WARN, normalized * 2)
+end
+
 local function formatDistance(studs)
 	if studs >= 1000 then
 		return string.format("%.1fk st", studs / 1000)
@@ -136,8 +157,11 @@ end
 local activeJobs  = {}
 local timeLabels  = {}       -- { [jobKey] = { label, timeLeft } }
 local distLabels  = {}       -- { [jobKey] = { label, zoneName } }
+local stabilityWidgets = {}  -- { [jobKey] = { label, fill } }
+local containmentWidgets = {} -- { [jobKey] = { label, fill } }
 local scrollFrame = nil
 local emptyLabel  = nil
+local fetchAndRefresh
 
 -- ── Build job row ─────────────────────────────────────────────────────────────
 local function buildJobRow(entry, index)
@@ -181,7 +205,7 @@ local function buildJobRow(entry, index)
 		Font                   = FONT_HEADER,
 		TextColor3             = rc,
 		BackgroundTransparency = 1,
-		Size                   = UDim2.new(1, -70, 0, 18),
+		Size                   = UDim2.new(1, -28, 0, 18),
 		Position               = UDim2.new(0, 0, 0, 6),
 		TextXAlignment         = Enum.TextXAlignment.Left,
 		TextTruncate           = Enum.TextTruncate.AtEnd,
@@ -195,11 +219,51 @@ local function buildJobRow(entry, index)
 		Font                   = FONT_HEADER,
 		TextColor3             = COLORS.ACCENT2,
 		BackgroundTransparency = 1,
-		Size                   = UDim2.new(0, 66, 0, 18),
-		Position               = UDim2.new(1, -66, 0, 6),
+		Size                   = UDim2.new(0, 58, 0, 18),
+		Position               = UDim2.new(1, -58, 0, 26),
 		TextXAlignment         = Enum.TextXAlignment.Right,
 		ZIndex                 = 14,
 	}, content)
+
+	-- Compact cancellation control leaves the header available for long cargo
+	-- names. The server remains authoritative over whether it can be cancelled.
+	local cancelButton = make("TextButton", {
+		Text                   = "X",
+		TextSize               = 11,
+		Font                   = FONT_HEADER,
+		TextColor3             = COLORS.ERROR,
+		BackgroundColor3       = Color3.fromRGB(48, 20, 28),
+		BackgroundTransparency = 0.1,
+		BorderSizePixel        = 0,
+		Size                   = UDim2.fromOffset(18, 18),
+		Position               = UDim2.new(1, -18, 0, 5),
+		AutoButtonColor        = false,
+		ZIndex                 = 15,
+	}, content)
+	makeCorner(cancelButton, 4)
+	makeStroke(cancelButton, COLORS.ERROR, 1)
+
+	cancelButton.Activated:Connect(function()
+		cancelButton.Active = false
+		cancelButton.Text = "…"
+		local invokeOk, cancelled, message = pcall(function()
+			return RF_CancelCargoJob:InvokeServer(entry.dockId, entry.jobId)
+		end)
+		if invokeOk and cancelled then
+			task.defer(function()
+				if fetchAndRefresh then fetchAndRefresh() end
+			end)
+		else
+			cancelButton.Text = "!"
+			warn("[CargoDeliveryHUD] Cancel failed:", invokeOk and message or cancelled)
+			task.delay(2, function()
+				if cancelButton.Parent then
+					cancelButton.Active = true
+					cancelButton.Text = "X"
+				end
+			end)
+		end
+	end)
 
 	-- Destination
 	make("TextLabel", {
@@ -208,7 +272,7 @@ local function buildJobRow(entry, index)
 		Font                   = FONT_BODY,
 		TextColor3             = COLORS.TEXT,
 		BackgroundTransparency = 1,
-		Size                   = UDim2.new(1, 0, 0, 14),
+		Size                   = UDim2.new(1, -64, 0, 14),
 		Position               = UDim2.new(0, 0, 0, 26),
 		TextXAlignment         = Enum.TextXAlignment.Left,
 		TextTruncate           = Enum.TextTruncate.AtEnd,
@@ -243,18 +307,21 @@ local function buildJobRow(entry, index)
 
 	-- Contraband badge (below danger)
 	if job.contraband then
-		local cbBadge = make("Frame", {
-			Size                   = UDim2.new(0, 74, 0, 13),
+		local contrabandSeverity = typeof(job.risks) == "table" and job.risks.Contraband or nil
+		local contrabandClass = string.upper(job.contrabandClass or "Restricted")
+		local hasSignature = typeof(contrabandSeverity) == "number"
+		local offenseBadge = make("Frame", {
+			Size                   = UDim2.new(0, hasSignature and 76 or 112, 0, 13),
 			Position               = UDim2.new(0, 0, 0, 56),
 			BackgroundColor3       = COLORS.ERROR,
 			BackgroundTransparency = 0.75,
 			BorderSizePixel        = 0,
 			ZIndex                 = 14,
 		}, content)
-		makeCorner(cbBadge, 3)
-		makeStroke(cbBadge, COLORS.ERROR, 1)
+		makeCorner(offenseBadge, 3)
+		makeStroke(offenseBadge, COLORS.ERROR, 1)
 		make("TextLabel", {
-			Text                   = "⚠ CONTRABAND",
+			Text                   = "⚠ " .. contrabandClass,
 			TextSize               = 8,
 			Font                   = FONT_HEADER,
 			TextColor3             = COLORS.ERROR,
@@ -262,7 +329,29 @@ local function buildJobRow(entry, index)
 			Size                   = UDim2.new(1, 0, 1, 0),
 			TextXAlignment         = Enum.TextXAlignment.Center,
 			ZIndex                 = 15,
-		}, cbBadge)
+		}, offenseBadge)
+		if hasSignature then
+			local signatureBadge = make("Frame", {
+				Size                   = UDim2.new(0, 82, 0, 13),
+				Position               = UDim2.new(0, 80, 0, 56),
+				BackgroundColor3       = COLORS.ERROR,
+				BackgroundTransparency = 0.75,
+				BorderSizePixel        = 0,
+				ZIndex                 = 14,
+			}, content)
+			makeCorner(signatureBadge, 3)
+			makeStroke(signatureBadge, COLORS.ERROR, 1)
+			make("TextLabel", {
+				Text                   = string.format("SIGNATURE %d%%", math.round(contrabandSeverity * 100)),
+				TextSize               = 8,
+				Font                   = FONT_HEADER,
+				TextColor3             = COLORS.ERROR,
+				BackgroundTransparency = 1,
+				Size                   = UDim2.new(1, 0, 1, 0),
+				TextXAlignment         = Enum.TextXAlignment.Center,
+				ZIndex                 = 15,
+			}, signatureBadge)
+		end
 	end
 
 	-- Time remaining
@@ -278,6 +367,75 @@ local function buildJobRow(entry, index)
 		ZIndex                 = 14,
 	}, content)
 
+	local hasStability = entry.cargoStability ~= nil
+	if hasStability then
+		local stability = entry.cargoStability
+		local color = conditionColor(stability)
+		local stabilityLabelText = entry.cargoStabilityLabel or "CARGO STABILITY"
+		local conditionLabel = make("TextLabel", {
+			Text                   = entry.cargoStabilityTriggered and stabilityLabelText .. "  TRIGGERED"
+				or string.format("%s  %d%%", stabilityLabelText, math.round(stability)),
+			TextSize               = 9,
+			Font                   = FONT_HEADER,
+			TextColor3             = color,
+			BackgroundTransparency = 1,
+			Size                   = UDim2.new(1, -86, 0, 12),
+			Position               = UDim2.new(0, 86, 0, 68),
+			TextXAlignment         = Enum.TextXAlignment.Left,
+			ZIndex                 = 14,
+		}, content)
+		local conditionTrack = make("Frame", {
+			Size             = UDim2.new(1, -86, 0, 6),
+			Position         = UDim2.new(0, 86, 0, 82),
+			BackgroundColor3 = Color3.fromRGB(45, 55, 65),
+			BorderSizePixel  = 0,
+			ZIndex           = 14,
+		}, content)
+		makeCorner(conditionTrack, 3)
+		local conditionFill = make("Frame", {
+			Size             = UDim2.new(math.clamp(stability / 100, 0, 1), 0, 1, 0),
+			BackgroundColor3 = color,
+			BorderSizePixel  = 0,
+			ZIndex           = 15,
+		}, conditionTrack)
+		makeCorner(conditionFill, 3)
+		stabilityWidgets[jobKey] = { label = conditionLabel, fill = conditionFill }
+	end
+
+	if hasRisk(job, "Biohazardous") then
+		local containment = entry.cargoContainment or 100
+		local containmentState = entry.cargoContainmentState or "SEALED?"
+		local color = conditionColor(containment)
+		local y = hasStability and 90 or 68
+		local containmentLabel = make("TextLabel", {
+			Text                   = string.format("%s  %d%%", containmentState, math.round(containment)),
+			TextSize               = 9,
+			Font                   = FONT_HEADER,
+			TextColor3             = color,
+			BackgroundTransparency = 1,
+			Size                   = UDim2.new(1, -86, 0, 12),
+			Position               = UDim2.new(0, 86, 0, y),
+			TextXAlignment         = Enum.TextXAlignment.Left,
+			ZIndex                 = 14,
+		}, content)
+		local containmentTrack = make("Frame", {
+			Size             = UDim2.new(1, -86, 0, 6),
+			Position         = UDim2.new(0, 86, 0, y + 14),
+			BackgroundColor3 = Color3.fromRGB(45, 55, 65),
+			BorderSizePixel  = 0,
+			ZIndex           = 14,
+		}, content)
+		makeCorner(containmentTrack, 3)
+		local containmentFill = make("Frame", {
+			Size             = UDim2.new(math.clamp(containment / 100, 0, 1), 0, 1, 0),
+			BackgroundColor3 = color,
+			BorderSizePixel  = 0,
+			ZIndex           = 15,
+		}, containmentTrack)
+		makeCorner(containmentFill, 3)
+		containmentWidgets[jobKey] = { label = containmentLabel, fill = containmentFill }
+	end
+
 	timeLabels[jobKey] = { label = timerLabel, timeLeft = timeLeft }
 	distLabels[jobKey] = { label = distLabel,  zoneName = job.zoneName }
 end
@@ -291,6 +449,8 @@ local function rebuildRows()
 	end
 	timeLabels = {}
 	distLabels = {}
+	stabilityWidgets = {}
+	containmentWidgets = {}
 
 	local count = #activeJobs
 	emptyLabel.Visible = (count == 0)
@@ -308,13 +468,26 @@ local function rebuildRows()
 end
 
 -- ── Server fetch ──────────────────────────────────────────────────────────────
-local function fetchAndRefresh()
+fetchAndRefresh = function()
 	local ok, result = pcall(function()
 		return RF_GetPlayerCargo:InvokeServer()
 	end)
 
 	if ok and result then
-		local countChanged = #result ~= #activeJobs
+		local rowsChanged = #result ~= #activeJobs
+		if not rowsChanged then
+			for index, entry in ipairs(result) do
+				local previous = activeJobs[index]
+				if not previous
+					or previous.dockId ~= entry.dockId
+					or previous.jobId ~= entry.jobId
+					or previous.expiresAt ~= entry.expiresAt
+				then
+					rowsChanged = true
+					break
+				end
+			end
+		end
 		activeJobs = result
 
 		-- Sync timeLeft to prevent drift
@@ -323,10 +496,35 @@ local function fetchAndRefresh()
 			if timeLabels[jobKey] then
 				timeLabels[jobKey].timeLeft = entry.timeLeft
 			end
+			local widget = stabilityWidgets[jobKey]
+			if widget and entry.cargoStability ~= nil then
+				local stability = math.clamp(entry.cargoStability, 0, 100)
+				local color = conditionColor(stability)
+				local stabilityLabel = entry.cargoStabilityLabel or "CARGO STABILITY"
+				widget.label.Text = entry.cargoStabilityTriggered and stabilityLabel .. "  TRIGGERED"
+					or string.format("%s  %d%%", stabilityLabel, math.round(stability))
+				widget.label.TextColor3 = color
+				widget.fill.Size = UDim2.new(stability / 100, 0, 1, 0)
+				widget.fill.BackgroundColor3 = color
+			end
+			local containmentWidget = containmentWidgets[jobKey]
+			if containmentWidget and entry.cargoContainment then
+				local containment = math.clamp(entry.cargoContainment, 0, 100)
+				local color = conditionColor(containment)
+				containmentWidget.label.Text = string.format(
+					"%s  %d%%",
+					entry.cargoContainmentState or "SEALED?",
+					math.round(containment)
+				)
+				containmentWidget.label.TextColor3 = color
+				containmentWidget.fill.Size = UDim2.new(containment / 100, 0, 1, 0)
+				containmentWidget.fill.BackgroundColor3 = color
+			end
 		end
 
-		-- Only full rebuild if job count changed
-		if countChanged then
+		-- Rebuild when job identity changes, even when one completed contract is
+		-- immediately replaced by another and the total count stays the same.
+		if rowsChanged then
 			rebuildRows()
 		end
 	end
@@ -384,6 +582,52 @@ if cargoJobAccepted then
 		end)
 	end)
 end
+
+RE_CargoRiskChanged.OnClientEvent:Connect(function(changedJobKey, snapshot)
+	snapshot = snapshot or {}
+	for _, entry in ipairs(activeJobs) do
+		local key = tostring(entry.dockId) .. ":" .. tostring(entry.jobId)
+		if key == changedJobKey then
+			entry.cargoStability = snapshot.stability
+			entry.cargoStabilityLabel = snapshot.stabilityLabel
+			entry.cargoStabilityTriggered = snapshot.stabilityTriggered
+			entry.cargoContainment = snapshot.containment
+			entry.cargoContainmentState = snapshot.containmentState
+			entry.cargoBroken = snapshot.broken
+			local displayKey = entry.dockId .. "_" .. entry.jobId .. "_" .. tostring(entry.expiresAt)
+			local widget = stabilityWidgets[displayKey]
+			if widget and snapshot.stability ~= nil then
+				local displayedCondition = math.clamp(snapshot.stability, 0, 100)
+				local color = conditionColor(displayedCondition)
+				local stabilityLabel = snapshot.stabilityLabel or "CARGO STABILITY"
+				widget.label.Text = snapshot.broken and stabilityLabel .. "  BROKEN"
+					or snapshot.stabilityTriggered and stabilityLabel .. "  TRIGGERED"
+					or string.format("%s  %d%%", stabilityLabel, math.round(displayedCondition))
+				widget.label.TextColor3 = color
+				widget.fill.Size = UDim2.new(displayedCondition / 100, 0, 1, 0)
+				widget.fill.BackgroundColor3 = color
+			end
+			local containmentWidget = containmentWidgets[displayKey]
+			if containmentWidget and snapshot.containment ~= nil then
+				local containment = math.clamp(snapshot.containment, 0, 100)
+				local color = conditionColor(containment)
+				containmentWidget.label.Text = string.format(
+					"%s  %d%%",
+					snapshot.containmentState or "SEALED?",
+					math.round(containment)
+				)
+				containmentWidget.label.TextColor3 = color
+				containmentWidget.fill.Size = UDim2.new(containment / 100, 0, 1, 0)
+				containmentWidget.fill.BackgroundColor3 = color
+			end
+			break
+		end
+	end
+
+	if snapshot.broken then
+		task.delay(0.25, fetchAndRefresh)
+	end
+end)
 
 -- ── Live ticker — countdown + distance ───────────────────────────────────────
 task.spawn(function()

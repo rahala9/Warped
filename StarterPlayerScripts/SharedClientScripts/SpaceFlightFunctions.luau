@@ -535,7 +535,7 @@ local function abortLanding(reason: string)
 end
 
 function functions.CanExitShip(): boolean
-	if functions.LaunchState == "Landed" then
+	if functions.LaunchState == "Landed" or functions.LaunchState == "AwaitingLaunch" then
 		return true
 	end
 
@@ -973,6 +973,7 @@ function functions.ExitShip()
 	local canEVA = EVAFunctions.CanEVA(player)
 
 	local nearGround = functions.LaunchState == "Landed"
+		or functions.LaunchState == "AwaitingLaunch"
 	if not canEVA and not nearGround then
 		local rayOrigin = HRP.Position
 		local rayDirection = Vector3.new(0, -100, 0)

@@ -7,6 +7,9 @@ local Scanner = require(ServerScriptService.SharedModules.Scanner)
 local ScannerConfigurations = require(ServerScriptService.SharedModules.Scanners)
 local ScannerActions = require(ServerScriptService.SharedFunctions.Scanners.ScannerActionsFunctions)
 local ScannerEffects = require(ServerScriptService.SharedFunctions.Scanners.ScannerEffectsFunctions)
+local ContrabandInspectionService = require(
+	ServerScriptService:WaitForChild("CargoInspectionSystem"):WaitForChild("ContrabandInspectionService")
+)
 
 local DisplayActionMessageEvent = ReplicatedStorage.SharedRemotes.DisplayActionMessage
 
@@ -139,6 +142,16 @@ local function initScannerWithZone(model: Model, zone)
 					warn("[BodyScanner] Unknown effect:", effectName)
 				end
 			end
+		end
+
+		if not passed
+			and perCheckResults
+			and perCheckResults[ScannerConfigurations.ScanType.IllicitItem] == false then
+			ContrabandInspectionService:ResolveCarriedDetection(
+				player,
+				"BodyScanner:" .. tostring(configId),
+				model
+			)
 		end
 	end
 

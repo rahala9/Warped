@@ -44,6 +44,12 @@ local enemyID = 0
 
 enemyFunctions.CollisionGroup = "Enemy"
 
+local function formatHealthText(currentHealth, maximumHealth)
+	local displayedCurrent = math.max(0, math.round(currentHealth))
+	local displayedMaximum = math.max(0, math.round(maximumHealth))
+	return string.format("%d / %d", displayedCurrent, displayedMaximum)
+end
+
 local R = Random.new()
 
 local tweeningInformation = TweenInfo.new(
@@ -135,7 +141,10 @@ function enemyFunctions.AddEnemy(enemy)
 
 	local billboard = enemy["root"]:FindFirstChild("EnemyHealth")
 	if (billboard) then
-		billboard.EnemyHealthBarFrame.HealthText.Text = enemy.health.main.." / "..enemiesModule[enemy.name].Health.main
+		billboard.EnemyHealthBarFrame.HealthText.Text = formatHealthText(
+			enemy.health.main,
+			enemiesModule[enemy.name].Health.main
+		)
 	end
 
 	--enemyFunctions.enemies[enemyID] = enemy
@@ -576,7 +585,10 @@ function enemyFunctions.DealBodyPartDamage(enemy, bodyPart, damage)
 		if (billboard) then
 
 			if (enemy.health.main > 0) then
-				billboard.EnemyHealthBarFrame.HealthText.Text = enemy.health.main.." / "..enemiesModule[enemy.name].Health.main
+				billboard.EnemyHealthBarFrame.HealthText.Text = formatHealthText(
+					enemy.health.main,
+					enemiesModule[enemy.name].Health.main
+				)
 
 				local TweenHealth = tweenService:Create(billboard.EnemyHealthBarFrame.Health,tweeningInformation,{Size = UDim2.new(enemy.health.main/enemiesModule[enemy.name].Health.main,0,1,0)}) --TODO remove hardcoded 30
 				TweenHealth:Play()

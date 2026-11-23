@@ -8,8 +8,29 @@ local ActionFunctions = require(ServerScriptService.SharedFunctions.ActionFuncti
 local TerminalConfigurations = require(ServerScriptService.SharedModules.Terminals)
 local TerminalActionsFunctions = require(ServerScriptService.SharedFunctions.Terminals.TerminalActionsFunctions)
 local TerminalEffectsFunctions = require(ServerScriptService.SharedFunctions.Terminals.TerminalEffectsFunctions)
+local InventoryFunctions = require(ServerScriptService.InventorySystem.DataInventoryFunctions)
 
 local PlayerLockouts = {}  -- {[player] = {[terminalId] = lockoutUntil}}
+
+local function getTerminalId(prompt)
+	local current = prompt
+	while current and current ~= workspace do
+		local terminalId = current:GetAttribute("TerminalID")
+		if typeof(terminalId) == "string" and terminalId ~= "" then
+			return terminalId
+		end
+		current = current.Parent
+	end
+	return prompt.Name
+end
+
+local function reportMissingConfig(player, terminalId)
+	DisplayActionMessageEvent:FireClient(player, {
+		"TERMINAL UNAVAILABLE",
+		"Terminal configuration was not found.",
+	}, 3)
+	warn("No configuration found for terminal:", terminalId)
+end
 
 local function isPlayerNearTerminal(player: Player, prompt: ProximityPrompt, maxDist: number): boolean
 	local char = player.Character
@@ -29,11 +50,11 @@ function HandleUseTerminal(player, prompt)
 	print("Player used terminal:", prompt.Name)
 	-- Could display terminal info, logs, etc.
 	
-	local terminalId = prompt:GetAttribute("TerminalID") or prompt.Name
+	local terminalId = getTerminalId(prompt)
 	local config = TerminalConfigurations.Terminals[terminalId]
 
 	if not config then
-		warn("No configuration found for terminal:", terminalId)
+		reportMissingConfig(player, terminalId)
 		return
 	end
 	
@@ -52,20 +73,54 @@ function HandleUseTerminal(player, prompt)
 		return
 	end
 	
+	if config.requiresAuthorization then
+		local requiredItem = prompt:GetAttribute("RequiredItem")
+			or prompt.Parent:GetAttribute("RequiredItem")
+			or config.requiredItem
+		local requiredAmount = prompt:GetAttribute("RequiredItemAmount")
+			or prompt.Parent:GetAttribute("RequiredItemAmount")
+			or config.requiredItemAmount
+			or 1
+
+		if typeof(requiredItem) ~= "string" or requiredItem == "" then
+			DisplayActionMessageEvent:FireClient(player, {
+				"ACCESS DENIED",
+				"No authorized keycard accepted. Use hack access.",
+			}, 3)
+			warn("Authorized terminal is missing RequiredItem:", prompt:GetFullName())
+			return
+		end
+
+		local hasItem = InventoryFunctions.HasItem(player, requiredItem, requiredAmount, true, true)
+		if not hasItem then
+			local itemDef = InventoryFunctions.GetItemDef(requiredItem)
+			local displayName = itemDef and itemDef.DisplayName or requiredItem
+			DisplayActionMessageEvent:FireClient(player, {
+				"ACCESS DENIED",
+				string.format("Requires %d %s", requiredAmount, displayName),
+			}, 3)
+			return
+		end
+	end
+
 	local useActionHandler = TerminalActionsFunctions[config.useAction]
 	if useActionHandler then
-		useActionHandler(config, player)
+		useActionHandler(config.useConfig or config, player)
 	else
+		DisplayActionMessageEvent:FireClient(player, {
+			"TERMINAL UNAVAILABLE",
+			"This terminal has no configured use action.",
+		}, 3)
 		warn("No use action handler found for:", config.useAction)
 	end
 end
 
 function HandleHackTerminal(player, prompt)
-	local terminalId = prompt:GetAttribute("TerminalID") or prompt.Name
+	local terminalId = getTerminalId(prompt)
 	local config = TerminalConfigurations.Terminals[terminalId]
 
 	if not config then
-		warn("No configuration found for terminal:", terminalId)
+		reportMissingConfig(player, terminalId)
 		return
 	end
 

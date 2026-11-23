@@ -1,13 +1,19 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
 local Config = require(ReplicatedStorage:WaitForChild("AdminSystem"):WaitForChild("Config"))
 local Effects = require(ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("Effects"))
 local Items = require(ReplicatedStorage:WaitForChild("InventorySystem"):WaitForChild("Items"))
+local SharedClientAssets = ReplicatedStorage:WaitForChild("SharedClientAssets")
+local Ships = SharedClientAssets:FindFirstChild("Ships") or Instance.new("Folder")
 local AdminRemote = ReplicatedStorage:WaitForChild("SharedRemotes"):WaitForChild("Admin")
+local ModeManager = require(script.Parent.Parent:WaitForChild("ModeManager"))
+
+SharedClientAssets.ChildAdded:Connect(function(child)
+	if child.Name == "Ships" then Ships = child end
+end)
 
 if not RunService:IsStudio() and Config.AdminUserIds[player.UserId] ~= true then return end
 
@@ -65,6 +71,7 @@ gui.IgnoreGuiInset = false
 gui.ResetOnSpawn = false
 gui.Enabled = false
 gui.Parent = player:WaitForChild("PlayerGui")
+ModeManager:RegisterGui(ModeManager.Modes.Admin, gui)
 
 local main = Instance.new("Frame")
 main.Name = "Main"
@@ -86,12 +93,13 @@ local title = label(main, "ADMIN TEST PANEL", UDim2.new(1, -140, 0, 42), UDim2.f
 title.Font = Enum.Font.GothamBold
 title.TextColor3 = COLORS.Accent
 title.TextSize = 17
-label(main, "F8", UDim2.fromOffset(42, 42), UDim2.new(1, -92, 0, 0)).TextColor3 = COLORS.Muted
+label(main, Config.ToggleKey.Name, UDim2.fromOffset(42, 42), UDim2.new(1, -92, 0, 0)).TextColor3 = COLORS.Muted
 local closeButton = button(main, "X", UDim2.fromOffset(38, 30), UDim2.new(1, -48, 0, 6), COLORS.Bad)
 
 local targetButton = button(main, "Target: " .. player.Name, UDim2.fromOffset(245, 34), UDim2.fromOffset(16, 48))
 local effectsTab = button(main, "Effects", UDim2.fromOffset(100, 34), UDim2.fromOffset(272, 48), COLORS.Accent)
 local itemsTab = button(main, "Items", UDim2.fromOffset(100, 34), UDim2.fromOffset(378, 48))
+local shipsTab = button(main, "Ships", UDim2.fromOffset(100, 34), UDim2.fromOffset(484, 48))
 
 local searchBox = Instance.new("TextBox")
 searchBox.Name = "Search"
@@ -209,9 +217,14 @@ local function addRow(name, description)
 		local apply = button(row, "Apply", UDim2.fromOffset(82, 30), UDim2.new(1, -90, 0, 8), COLORS.Good)
 		apply.Activated:Connect(function() send("AddEffect", name) end)
 		remove.Activated:Connect(function() send("RemoveEffect", name) end)
-	else
+	elseif activeTab == "Items" then
 		local give = button(row, "Give", UDim2.fromOffset(82, 30), UDim2.new(1, -90, 0, 8), COLORS.Good)
 		give.Activated:Connect(function() send("AddItem", name, tonumber(amountBox.Text) or 1) end)
+	else
+		local revoke = button(row, "Revoke", UDim2.fromOffset(82, 30), UDim2.new(1, -178, 0, 8), COLORS.Bad)
+		local grant = button(row, "Grant", UDim2.fromOffset(82, 30), UDim2.new(1, -90, 0, 8), COLORS.Good)
+		grant.Activated:Connect(function() send("GrantShip", name) end)
+		revoke.Activated:Connect(function() send("RevokeShip", name) end)
 	end
 end
 
@@ -219,16 +232,27 @@ local function rebuild()
 	clearRows()
 	local query = searchBox.Text:lower()
 	local entries = {}
-	local source = activeTab == "Effects" and Effects or Items
-	for name, definition in pairs(source) do
-		if typeof(definition) == "table" then
-			local displayName = definition.DisplayName or definition.Name or name
-			local haystack = (name .. " " .. tostring(displayName) .. " " .. tostring(definition.Description or definition.Desc or "")):lower()
-			if query == "" or haystack:find(query, 1, true) then
-				table.insert(entries, {
-					Name = name,
-					Description = definition.Description or definition.Desc or tostring(displayName),
-				})
+	if activeTab == "Ships" then
+		for _, ship in ipairs(Ships:GetChildren()) do
+			if ship:IsA("Model") then
+				local haystack = ship.Name:lower()
+				if query == "" or haystack:find(query, 1, true) then
+					table.insert(entries, {Name = ship.Name, Description = "Persistent ship ownership"})
+				end
+			end
+		end
+	else
+		local source = activeTab == "Effects" and Effects or Items
+		for name, definition in pairs(source) do
+			if typeof(definition) == "table" then
+				local displayName = definition.DisplayName or definition.Name or name
+				local haystack = (name .. " " .. tostring(displayName) .. " " .. tostring(definition.Description or definition.Desc or "")):lower()
+				if query == "" or haystack:find(query, 1, true) then
+					table.insert(entries, {
+						Name = name,
+						Description = definition.Description or definition.Desc or tostring(displayName),
+					})
+				end
 			end
 		end
 	end
@@ -242,8 +266,10 @@ local function setTab(tab)
 	activeTab = tab
 	effectsTab.BackgroundColor3 = tab == "Effects" and COLORS.Accent or COLORS.Surface2
 	itemsTab.BackgroundColor3 = tab == "Items" and COLORS.Accent or COLORS.Surface2
+	shipsTab.BackgroundColor3 = tab == "Ships" and COLORS.Accent or COLORS.Surface2
 	amountBox.Visible = tab == "Items"
-	searchBox.PlaceholderText = tab == "Effects" and "Search effects..." or "Search items..."
+	searchBox.PlaceholderText = tab == "Effects" and "Search effects..."
+		or tab == "Items" and "Search items..." or "Search ships..."
 	rebuild()
 end
 
@@ -255,8 +281,9 @@ targetButton.Activated:Connect(function()
 end)
 effectsTab.Activated:Connect(function() setTab("Effects") end)
 itemsTab.Activated:Connect(function() setTab("Items") end)
+shipsTab.Activated:Connect(function() setTab("Ships") end)
 searchBox:GetPropertyChangedSignal("Text"):Connect(rebuild)
-closeButton.Activated:Connect(function() gui.Enabled = false end)
+closeButton.Activated:Connect(function() ModeManager:SetMode(ModeManager.Modes.Gameplay) end)
 Players.PlayerRemoving:Connect(function(leaving)
 	if selectedTarget == leaving then selectedTarget = player; validateTarget() end
 end)
@@ -267,17 +294,11 @@ AdminRemote.OnClientEvent:Connect(function(action, payload)
 	status.TextColor3 = payload.Ok and COLORS.Good or COLORS.Bad
 end)
 
-UserInputService.InputBegan:Connect(function(input, _processed)
-	if input.KeyCode ~= Config.ToggleKey then return end
-	gui.Enabled = not gui.Enabled
-	if gui.Enabled then validateTarget(); rebuild() end
-	-- The retired Studio-authored panel may still be toggled by an old
-	-- ShowAdminAction binding. Keep it out of the way of this maintained panel.
-	task.defer(function()
-		local sharedGui = player.PlayerGui:FindFirstChild("SharedGUI")
-		local legacyGui = sharedGui and sharedGui:FindFirstChild("AdminGui")
-		if legacyGui and legacyGui:IsA("ScreenGui") then legacyGui.Enabled = false end
-	end)
+ModeManager.ModeChanged:Connect(function(mode)
+	if mode == ModeManager.Modes.Admin then
+		validateTarget()
+		rebuild()
+	end
 end)
 
 setTab("Effects")

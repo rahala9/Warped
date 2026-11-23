@@ -17,6 +17,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 -- ── Dependencies ──────────────────────────────────────────────────────────────
 local CargoDeliveryManager = require(game.ServerScriptService:WaitForChild("SharedServices"):WaitForChild("CargoDeliveryManager"))
+local ShipFunctions = require(game.ServerScriptService:WaitForChild("Data"):WaitForChild("DataShipFunctions"))
+local PlayerProfiles = require(game.ServerScriptService:WaitForChild("Data"):WaitForChild("Data"))
 
 -- ── Folder References ─────────────────────────────────────────────────────────
 local SharedClientAssets = ReplicatedStorage:WaitForChild("SharedClientAssets")
@@ -47,7 +49,23 @@ local RF_DespawnShip     = getOrMakeRemote("RemoteFunction", "DespawnShip")
 local RF_GetCargoJobs    = getOrMakeRemote("RemoteFunction", "GetCargoJobs")
 local RF_AcceptCargoJob  = getOrMakeRemote("RemoteFunction", "AcceptCargoJob")
 local RF_GetPlayerCargo  = getOrMakeRemote("RemoteFunction", "GetPlayerCargo")
+local RF_CancelCargoJob  = getOrMakeRemote("RemoteFunction", "CancelCargoJob")
+local RF_SetCargoDistanceSort = getOrMakeRemote("RemoteFunction", "SetCargoDistanceSort")
 local RE_OpenDockUI      = getOrMakeRemote("RemoteEvent",    "OpenDockUI")
+
+local DEFAULT_CARGO_DISTANCE_SORT = "Ascending"
+
+local function getCargoDistanceSort(player)
+	local profile = PlayerProfiles[player]
+	if not profile then return DEFAULT_CARGO_DISTANCE_SORT end
+	profile.Data.Preferences = profile.Data.Preferences or {}
+	local direction = profile.Data.Preferences.CargoDistanceSort
+	if direction ~= "Ascending" and direction ~= "Descending" then
+		direction = DEFAULT_CARGO_DISTANCE_SORT
+		profile.Data.Preferences.CargoDistanceSort = direction
+	end
+	return direction
+end
 
 -- ── Dock Registry ─────────────────────────────────────────────────────────────
 --[[
@@ -82,8 +100,8 @@ local CARGO_TYPES = {
 	-- ── Common ────────────────────────────────────────────────────────────────
 	{ name = "Recycled Hull Scrap",          baseValue = 10,  danger = 0.0, rarity = "Common",    contraband = false, cargoModel = "Cargo1" },
 	{ name = "Quantum Ore",                  baseValue = 80,  danger = 0.0, rarity = "Common",    contraband = false, cargoModel = "Cargo1" },
-	{ name = "Biosynth Fibers",              baseValue = 40,  danger = 0.1, rarity = "Common",    contraband = false, cargoModel = "Cargo4" },
-	{ name = "Medipacks (Grade C)",          baseValue = 30,  danger = 0.0, rarity = "Common",    contraband = false, cargoModel = "Cargo1" },
+	{ name = "Biosynth Fibers",              baseValue = 40,  danger = 0.1, rarity = "Common",    contraband = false, cargoModel = "Cargo4", risks = { Biohazardous = 0.2 } },
+	{ name = "Medipacks (Grade C)",          baseValue = 30,  danger = 0.0, rarity = "Common",    contraband = false, cargoModel = "Cargo1", risks = { Fragile = 0.2 } },
 	{ name = "Dehydrated Ration Packs",      baseValue = 15,  danger = 0.0, rarity = "Common",    contraband = false, cargoModel = "Cargo1" },
 	{ name = "Office Supply Crates",         baseValue = 12,  danger = 0.0, rarity = "Common",    contraband = false, cargoModel = "Cargo1" },
 	{ name = "Synthetic Coffee Beans",       baseValue = 20,  danger = 0.0, rarity = "Common",    contraband = false, cargoModel = "Cargo1" },
@@ -93,61 +111,61 @@ local CARGO_TYPES = {
 	{ name = "Somebody's Lunch",             baseValue = 5,   danger = 0.0, rarity = "Common",    contraband = false, cargoModel = "Cargo1" },
 	{ name = "Motivational Posters (Bulk)",  baseValue = 8,   danger = 0.0, rarity = "Common",    contraband = false, cargoModel = "Cargo1" },
 	{ name = "Unsolicited Surveys",          baseValue = 3,   danger = 0.0, rarity = "Common",    contraband = false, cargoModel = "Cargo1" },
-	{ name = "Novelty Gravity Globes",       baseValue = 12,  danger = 0.0, rarity = "Common",    contraband = false, cargoModel = "Cargo1" },
+	{ name = "Novelty Gravity Globes",       baseValue = 12,  danger = 0.0, rarity = "Common",    contraband = false, cargoModel = "Cargo1", risks = { Fragile = 0.35 } },
 	{ name = "Generic Brand Nutrients",      baseValue = 10,  danger = 0.0, rarity = "Common",    contraband = false, cargoModel = "Cargo1" },
 	{ name = "Commemorative Plaques",        baseValue = 7,   danger = 0.0, rarity = "Common",    contraband = false, cargoModel = "Cargo1" },
 	{ name = "Discontinued Uniforms",        baseValue = 6,   danger = 0.0, rarity = "Common",    contraband = false, cargoModel = "Cargo1" },
 	{ name = "Participation Certificates",   baseValue = 1,   danger = 0.0, rarity = "Common",    contraband = false, cargoModel = "Cargo1" },
 
 	-- ── Uncommon ──────────────────────────────────────────────────────────────
-	{ name = "Nano-Lube Canisters",          baseValue = 35,  danger = 0.2, rarity = "Uncommon",  contraband = false, cargoModel = "Cargo2" },
+	{ name = "Nano-Lube Canisters",          baseValue = 35,  danger = 0.2, rarity = "Uncommon",  contraband = false, cargoModel = "Cargo2", risks = { Fragile = 0.3 } },
 	{ name = "Starship Fuel Pods",           baseValue = 90,  danger = 0.2, rarity = "Uncommon",  contraband = false, cargoModel = "Cargo2" },
 	{ name = "Corporate Docs",               baseValue = 45,  danger = 0.3, rarity = "Uncommon",  contraband = false, cargoModel = "Cargo2" },
 	{ name = "Cooling Fluid Drums",          baseValue = 40,  danger = 0.1, rarity = "Uncommon",  contraband = false, cargoModel = "Cargo3" },
 	{ name = "Atmospheric Filters",          baseValue = 38,  danger = 0.0, rarity = "Uncommon",  contraband = false, cargoModel = "Cargo2" },
-	{ name = "Data Storage Cores",           baseValue = 55,  danger = 0.2, rarity = "Uncommon",  contraband = false, cargoModel = "Cargo2" },
+	{ name = "Data Storage Cores",           baseValue = 55,  danger = 0.2, rarity = "Uncommon",  contraband = false, cargoModel = "Cargo2", risks = { Fragile = 0.4 } },
 	{ name = "Thermal Gel Packs",            baseValue = 42,  danger = 0.2, rarity = "Uncommon",  contraband = false, cargoModel = "Cargo2" },
 	{ name = "Pressurized Gas Canisters",    baseValue = 48,  danger = 0.3, rarity = "Uncommon",  contraband = false, cargoModel = "Cargo2" },
-	{ name = "Whispral Sand Crawler",        baseValue = 60,  danger = 0.3, rarity = "Uncommon",  contraband = true, cargoModel = "Cargo2"  },
+	{ name = "Whispral Sand Crawler",        baseValue = 60,  danger = 0.3, rarity = "Uncommon",  contraband = true, contrabandClass = "Restricted", cargoModel = "Cargo2", risks = { ContainedCreature = 0.35, Contraband = 0.3 } },
 	{ name = "Someone's Personal Effects",   baseValue = 30,  danger = 0.0, rarity = "Uncommon",  contraband = false, cargoModel = "Cargo2" },
-	{ name = "Unverified Antiques",          baseValue = 55,  danger = 0.0, rarity = "Uncommon",  contraband = false, cargoModel = "Cargo2" },
+	{ name = "Unverified Antiques",          baseValue = 55,  danger = 0.0, rarity = "Uncommon",  contraband = false, cargoModel = "Cargo5" },
 	{ name = "Aggressively Loud Speakers",   baseValue = 40,  danger = 0.1, rarity = "Uncommon",  contraband = false, cargoModel = "Cargo2" },
-	{ name = "Second-Hand Clones (Parts)",   baseValue = 65,  danger = 0.3, rarity = "Uncommon",  contraband = true, cargoModel = "Cargo2"  },
-	{ name = "Unlabeled Barrels",            baseValue = 50,  danger = 0.0, rarity = "Uncommon",  contraband = false, cargoModel = "Cargo3" },
+	{ name = "Second-Hand Clones (Parts)",   baseValue = 65,  danger = 0.3, rarity = "Uncommon",  contraband = true, contrabandClass = "Illegal", cargoModel = "Cargo2", risks = { Contraband = 0.4 } },
+	{ name = "Unlabeled Barrels",            baseValue = 50,  danger = 0.0, rarity = "Uncommon",  contraband = false, cargoModel = "Cargo3", risks = { Biohazardous = 0.35 } },
 	{ name = "Defective Escape Pods",        baseValue = 45,  danger = 0.0, rarity = "Uncommon",  contraband = false, cargoModel = "Cargo2" },
-	{ name = "Slightly Haunted Hardware",    baseValue = 60,  danger = 0.7, rarity = "Uncommon",  contraband = false, cargoModel = "Cargo2" },
+	{ name = "Slightly Haunted Hardware",    baseValue = 60,  danger = 0.7, rarity = "Uncommon",  contraband = false, cargoModel = "Cargo5" },
 
 	-- ── Rare ──────────────────────────────────────────────────────────────────
-	{ name = "Cryo-Cells",                   baseValue = 120, danger = 0.3, rarity = "Rare",      contraband = false, cargoModel = "Cargo1" },
-	{ name = "Contraband Spice",             baseValue = 250, danger = 0.5, rarity = "Rare",      contraband = true, cargoModel = "Cargo1"  },
-	{ name = "Contraband Pirate Radios",     baseValue = 275, danger = 0.6, rarity = "Rare",      contraband = true, cargoModel = "Cargo1"  },
-	{ name = "Unlicensed Energy",   		 baseValue = 200, danger = 0.4, rarity = "Rare",      contraband = true, cargoModel = "Cargo3"  },
-	{ name = "Stolen Corp Prototypes",       baseValue = 220, danger = 0.5, rarity = "Rare",      contraband = true, cargoModel = "Cargo1"  },
-	{ name = "Memory Wipe Kits",             baseValue = 180, danger = 0.4, rarity = "Rare",      contraband = true, cargoModel = "Cargo1"  },
-	{ name = "Void Moth Larva",              baseValue = 160, danger = 0.2, rarity = "Rare",      contraband = true, cargoModel = "Cargo4"  },
-	{ name = "Miragi Venom Serpent",         baseValue = 300, danger = 0.7, rarity = "Rare",      contraband = true, cargoModel = "Cargo4"  },
-	{ name = "Yabis VII Core Samples",       baseValue = 115, danger = 0.0, rarity = "Rare",      contraband = false, cargoModel = "Cargo3" },
-	{ name = "Evidence (Unspecified)",       baseValue = 180, danger = 0.3, rarity = "Rare",      contraband = true, cargoModel = "Cargo1"  },
+	{ name = "Cryo-Cells",                   baseValue = 120, danger = 0.3, rarity = "Rare",      contraband = false, cargoModel = "Cargo2", risks = { Fragile = 0.5 } },
+	{ name = "Contraband Spice",             baseValue = 250, danger = 0.5, rarity = "Rare",      contraband = true, contrabandClass = "Illegal", cargoModel = "Cargo1", risks = { Contraband = 0.55 } },
+	{ name = "Contraband Pirate Radios",     baseValue = 275, danger = 0.6, rarity = "Rare",      contraband = true, contrabandClass = "Restricted", cargoModel = "Cargo1", risks = { Contraband = 0.65 } },
+	{ name = "Unlicensed Energy",   		 baseValue = 200, danger = 0.4, rarity = "Rare",      contraband = true, contrabandClass = "Illegal", cargoModel = "Cargo3", risks = { Contraband = 0.6 } },
+	{ name = "Stolen Corp Prototypes",       baseValue = 220, danger = 0.5, rarity = "Rare",      contraband = true, contrabandClass = "Illegal", cargoModel = "Cargo1", risks = { Contraband = 0.65 } },
+	{ name = "Memory Wipe Kits",             baseValue = 180, danger = 0.4, rarity = "Rare",      contraband = true, contrabandClass = "Illegal", cargoModel = "Cargo1", risks = { Fragile = 0.55, Contraband = 0.6 } },
+	{ name = "Void Moth Larva",              baseValue = 160, danger = 0.2, rarity = "Rare",      contraband = true, contrabandClass = "Illegal", cargoModel = "Cargo4", risks = { ContainedCreature = 0.55, Biohazardous = 0.5, Contraband = 0.65 } },
+	{ name = "Miragi Venom Serpent",         baseValue = 300, danger = 0.7, rarity = "Rare",      contraband = true, contrabandClass = "Capital", cargoModel = "Cargo4", risks = { ContainedCreature = 0.75, Biohazardous = 0.8, Contraband = 0.75 } },
+	{ name = "Yabis VII Core Samples",       baseValue = 115, danger = 0.0, rarity = "Rare",      contraband = false, cargoModel = "Cargo3", risks = { Fragile = 0.35, Biohazardous = 0.25 } },
+	{ name = "Evidence (Unspecified)",       baseValue = 180, danger = 0.3, rarity = "Rare",      contraband = true, contrabandClass = "Illegal", cargoModel = "Cargo5", risks = { Contraband = 0.5 } },
 	{ name = "The Wrong Shipment",           baseValue = 200, danger = 0.7, rarity = "Rare",      contraband = false, cargoModel = "Cargo1" },
-	{ name = "Slightly Alive Cargo",         baseValue = 220, danger = 0.7, rarity = "Rare",      contraband = true, cargoModel = "Cargo4"  },
+	{ name = "Slightly Alive Cargo",         baseValue = 220, danger = 0.7, rarity = "Rare",      contraband = true, contrabandClass = "Illegal", cargoModel = "Cargo4", risks = { ContainedCreature = 0.7, Biohazardous = 0.75, Contraband = 0.7 } },
 
 	-- ── Epic ──────────────────────────────────────────────────────────────────
-	{ name = "RadioactiveCore",              baseValue = 100, danger = 0.8, rarity = "Epic",      contraband = false, cargoModel = "Cargo1" },
-	{ name = "Unregistered AI Cores",        baseValue = 400, danger = 0.6, rarity = "Epic",      contraband = true, cargoModel = "Cargo1"  },
-	{ name = "Forged Identity Chips",        baseValue = 350, danger = 0.7, rarity = "Epic",      contraband = true, cargoModel = "Cargo1"  },
-	{ name = "Keth Razorback",               baseValue = 450, danger = 0.8, rarity = "Epic",      contraband = true, cargoModel = "Cargo1"  },
-	{ name = "Crystalline Parasite",         baseValue = 380, danger = 0.9, rarity = "Epic",      contraband = true, cargoModel = "Cargo1"  },
-	{ name = "Someone Important's Brain",    baseValue = 400, danger = 0.5, rarity = "Epic",      contraband = true, cargoModel = "Cargo1"  },
-	{ name = "A Very Angry Crate",           baseValue = 350, danger = 0.8, rarity = "Epic",      contraband = false, cargoModel = "Cargo1" },
+	{ name = "RadioactiveCore",              baseValue = 100, danger = 0.8, rarity = "Epic",      contraband = false, cargoModel = "Cargo1", risks = { Fragile = 0.65, Biohazardous = 0.9 } },
+	{ name = "Unregistered AI Cores",        baseValue = 400, danger = 0.6, rarity = "Epic",      contraband = true, contrabandClass = "Illegal", cargoModel = "Cargo1", risks = { Fragile = 0.65, Contraband = 0.8 } },
+	{ name = "Forged Identity Chips",        baseValue = 350, danger = 0.7, rarity = "Epic",      contraband = true, contrabandClass = "Illegal", cargoModel = "Cargo1", risks = { Contraband = 0.85 } },
+	{ name = "Keth Razorback",               baseValue = 450, danger = 0.8, rarity = "Epic",      contraband = true, contrabandClass = "Illegal", cargoModel = "Cargo1", risks = { ContainedCreature = 0.8, Contraband = 0.8 } },
+	{ name = "Crystalline Parasite",         baseValue = 380, danger = 0.9, rarity = "Epic",      contraband = true, contrabandClass = "Capital", cargoModel = "Cargo1", risks = { ContainedCreature = 0.9, Biohazardous = 0.9, Contraband = 0.9 } },
+	{ name = "Someone Important's Brain",    baseValue = 400, danger = 0.5, rarity = "Epic",      contraband = true, contrabandClass = "Capital", cargoModel = "Cargo1", risks = { Fragile = 0.55, Biohazardous = 0.75, Contraband = 0.8 } },
+	{ name = "A Very Angry Crate",           baseValue = 350, danger = 0.8, rarity = "Epic",      contraband = false, cargoModel = "Cargo1", risks = { ContainedCreature = 0.8 } },
 	{ name = "The Exception (Form 7-C)",     baseValue = 300, danger = 0.0, rarity = "Epic",      contraband = false, cargoModel = "Cargo1" },
-	{ name = "Plausible Deniability Docs",   baseValue = 420, danger = 0.7, rarity = "Epic",      contraband = true, cargoModel = "Cargo1"  },
+	{ name = "Plausible Deniability Docs",   baseValue = 420, danger = 0.7, rarity = "Epic",      contraband = true, contrabandClass = "Illegal", cargoModel = "Cargo1", risks = { Contraband = 0.75 } },
 
 	-- ── Legendary ─────────────────────────────────────────────────────────────
-	{ name = "Dark Matter Vials",                   baseValue = 500, danger = 1.0, rarity = "Legendary", contraband = false, cargoModel = "Cargo1" },
-	{ name = "Ooze-Touched Specimen",               baseValue = 600, danger = 1.0, rarity = "Legendary", contraband = true, cargoModel = "Cargo4"  },
-	{ name = "Mechanica Robotic Titan Parts",        baseValue = 580, danger = 0.6, rarity = "Legendary", contraband = true, cargoModel = "Cargo1"  },
-	{ name = "Stolen Artifacts From Planet Forge",   baseValue = 550, danger = 0.3, rarity = "Legendary", contraband = true, cargoModel = "Cargo1"  },
-	{ name = "Jar of Warped Time from Planet Lag",   baseValue = 525, danger = 0.1, rarity = "Legendary", contraband = false, cargoModel = "Cargo1" },
+	{ name = "Dark Matter Vials",                   baseValue = 500, danger = 1.0, rarity = "Legendary", contraband = false, cargoModel = "Cargo1", risks = { Fragile = 0.95 } },
+	{ name = "Ooze-Touched Specimen",               baseValue = 600, danger = 1.0, rarity = "Legendary", contraband = true, contrabandClass = "Capital", cargoModel = "Cargo4", risks = { ContainedCreature = 0.95, Biohazardous = 1.0, Contraband = 0.95 } },
+	{ name = "Mechanica Robotic Titan Parts",        baseValue = 580, danger = 0.6, rarity = "Legendary", contraband = true, contrabandClass = "Capital", cargoModel = "Cargo1", risks = { Contraband = 0.9 } },
+	{ name = "Stolen Artifacts From Planet Forge",   baseValue = 550, danger = 0.3, rarity = "Legendary", contraband = true, contrabandClass = "Illegal", cargoModel = "Cargo5", risks = { Contraband = 0.85 } },
+	{ name = "Jar of Warped Time from Planet Lag",   baseValue = 525, danger = 0.1, rarity = "Legendary", contraband = false, cargoModel = "Cargo1", risks = { Fragile = 0.5 } },
 }
 
 -- ── Weighted Cargo Pool ───────────────────────────────────────────────────────
@@ -178,10 +196,9 @@ local NON_LOCAL_DESTINATIONS = {
 -- ── Player Owned Ships ────────────────────────────────────────────────────────
 local function getOwnedShips(player)
 	local ships = {}
-	for _, child in ipairs(ShipsFolder:GetChildren()) do
-		if child:IsA("Model") then
-			table.insert(ships, child.Name)
-		end
+	for _, shipName in ipairs(ShipFunctions.GetOwnedShips(player)) do
+		local template = ShipsFolder:FindFirstChild(shipName)
+		if template and template:IsA("Model") then table.insert(ships, shipName) end
 	end
 	return ships
 end
@@ -216,26 +233,85 @@ local function getZonePosition(zoneName)
 end
 
 -- ── Payout Calculation ────────────────────────────────────────────────────────
-local BASE_VALUE_PCT       = 0.005
+local LOCAL_VALUE_DIVISOR  = 1000
+local LOCAL_RISK_PREMIUM   = 3
+local LOCAL_MAX_PAYOUT     = 5
 local DISTANCE_RATE        = 0.0020
-local DANGER_DISTANCE_RATE = 0.0035
 local LOCAL_DISTANCE       = 800
 local NEARBY_DISTANCE      = 5000
 local DISTANT_THRESHOLD    = 1000
 local DISTANCE_EXPONENT    = 1.1
+local DELIVERY_HANDLING_SECONDS = 120
+local DELIVERY_EFFECTIVE_SPEED = 50
+local MIN_DELIVERY_MINUTES = 2
+local MAX_DELIVERY_MINUTES = 30
 
 local function applyDistanceCurve(distance)
 	local normalized = distance / DISTANT_THRESHOLD
 	return DISTANT_THRESHOLD * math.pow(normalized, DISTANCE_EXPONENT)
 end
 
-local function calculatePayout(totalValue, danger, distance)
-	local basePayout    = totalValue * BASE_VALUE_PCT
-	local curved        = applyDistanceCurve(distance)
-	local dangerBonus   = danger * curved * DANGER_DISTANCE_RATE
-	local distanceBonus = curved * DISTANCE_RATE
-	local fuzz          = 0.92 + math.random() * 0.16
-	return math.max(math.floor((basePayout + dangerBonus + distanceBonus) * fuzz), 1)
+local function calculateRiskPremiums(risks, totalPremium)
+	local totalSeverity = 0
+	for _, severity in pairs(risks or {}) do
+		if typeof(severity) == "number" and severity > 0 then
+			totalSeverity += math.clamp(severity, 0, 1)
+		end
+	end
+
+	local premiums = {}
+	if totalSeverity <= 0 or totalPremium <= 0 then return premiums end
+	for riskName, severity in pairs(risks or {}) do
+		if typeof(severity) == "number" and severity > 0 then
+			premiums[riskName] = totalPremium * (math.clamp(severity, 0, 1) / totalSeverity)
+		end
+	end
+	return premiums
+end
+
+local function calculatePayout(totalValue, danger, distance, risks)
+	local safePay = 1 + math.clamp(totalValue / LOCAL_VALUE_DIVISOR, 0, 1)
+	local riskPay = math.clamp(danger, 0, 1) * LOCAL_RISK_PREMIUM
+	local safePayout = math.clamp(math.round(safePay), 1, 2)
+	local riskPremium = math.clamp(math.round(riskPay), 0, LOCAL_RISK_PREMIUM)
+	local localPayout = math.clamp(safePayout + riskPremium, 1, LOCAL_MAX_PAYOUT)
+	if distance < LOCAL_DISTANCE then
+		return localPayout, safePayout, 0, riskPremium, calculateRiskPremiums(risks, riskPremium)
+	end
+
+	local distanceBeyondLocal = distance - LOCAL_DISTANCE
+	local distancePay = applyDistanceCurve(distanceBeyondLocal) * DISTANCE_RATE
+	local fuzz = 0.92 + math.random() * 0.16
+	local distancePayout = math.max(math.round(distancePay * fuzz), 0)
+	local distanceRiskPremium = math.max(math.round(distancePay * math.clamp(danger, 0, 1) * fuzz), 0)
+	riskPremium += distanceRiskPremium
+	return math.max(safePayout + distancePayout + riskPremium, 1),
+		safePayout,
+		distancePayout,
+		riskPremium,
+		calculateRiskPremiums(risks, riskPremium)
+end
+
+local function calculateOverallDanger(risks)
+	-- Combine independent risk severities without allowing the result to exceed
+	-- 100%. Only implemented risks contribute; legacy danger values do not pay
+	-- players for hazards that do not exist in gameplay yet.
+	local combinedRisk = 0
+	for _, severity in pairs(risks or {}) do
+		if typeof(severity) == "number" then
+			local normalized = math.clamp(severity, 0, 1)
+			combinedRisk = 1 - (1 - combinedRisk) * (1 - normalized)
+		end
+	end
+	return combinedRisk
+end
+
+local function calculateTimeLimit(distance)
+	-- Effective speed intentionally includes route inefficiency and maneuvering.
+	-- Handling time covers pickup, ship entry, launch, landing, and unloading.
+	local travelSeconds = math.max(distance, 0) / DELIVERY_EFFECTIVE_SPEED
+	local totalSeconds = DELIVERY_HANDLING_SECONDS + travelSeconds
+	return math.clamp(math.ceil(totalSeconds / 60), MIN_DELIVERY_MINUTES, MAX_DELIVERY_MINUTES)
 end
 
 -- ── Destination Shuffle Helper ────────────────────────────────────────────────
@@ -297,26 +373,36 @@ local function generateCargoJobs(dockId, anchorPos)
 
 		local quantity   = math.random(1, 20)
 		local totalValue = cargo.baseValue * quantity
-		local payout     = calculatePayout(totalValue, cargo.danger, distance)
+		local overallDanger = calculateOverallDanger(cargo.risks)
+		local payout, safePayout, distancePayout, riskPremium, riskPremiums = calculatePayout(
+			totalValue,
+			overallDanger,
+			distance,
+			cargo.risks
+		)
 
-		local timeLimit = distanceLabel == "Local"  and math.random(5,  15)
-			or distanceLabel == "Nearby" and math.random(15, 40)
-			or math.random(40, 90)
+		local timeLimit = calculateTimeLimit(distance)
 
 		table.insert(jobs, {
 			id            = i,
 			cargoName     = cargo.name,
 			quantity      = quantity,
 			cargoValue    = totalValue,
-			danger        = cargo.danger,
+			danger        = overallDanger,
+			risks         = cargo.risks,
 			rarity        = cargo.rarity,
 			contraband    = cargo.contraband,
+			contrabandClass = cargo.contrabandClass,
 			cargoModel    = cargo.cargoModel,
 			destination   = dest.name,
 			zoneName      = dest.zoneName,
 			distance      = math.floor(distance),
 			distanceLabel = distanceLabel,
 			payout        = payout,
+			safePayout    = safePayout,
+			distancePayout = distancePayout,
+			riskPremium   = riskPremium,
+			riskPremiums  = riskPremiums,
 			timeLimit     = timeLimit,
 		})
 	end
@@ -373,6 +459,9 @@ local function dockNPCShip(dockId, shipName, existingShip, dockTime)
 	dock.cachedJobs   = nil
 	dock.dockedAt     = tick()
 	dock.dockDuration = dockTime or 0
+	ship:SetAttribute("OwnerUserId", nil)
+	ship:SetAttribute("OwnerName", nil)
+	ship:SetAttribute("IsNPCShip", true)
 
 	print("[DockManager] NPC ship '" .. shipName .. "' docked at '" .. dockId .. "'.")
 	return true
@@ -494,12 +583,7 @@ RF_SpawnShip.OnServerInvoke = function(player, dockId, shipName)
 	local template = ShipsFolder:FindFirstChild(shipName)
 	if not template then return false, "Ship '" .. shipName .. "' not found." end
 
-	local owned  = getOwnedShips(player)
-	local ownsIt = false
-	for _, s in ipairs(owned) do
-		if s == shipName then ownsIt = true break end
-	end
-	if not ownsIt then return false, "You don't own that ship." end
+	if not ShipFunctions.OwnsShip(player, shipName) then return false, "You don't own that ship." end
 
 	local ship  = template:Clone()
 	ship.Name   = shipName
@@ -516,6 +600,8 @@ RF_SpawnShip.OnServerInvoke = function(player, dockId, shipName)
 	dock.spawnedBy   = player.UserId
 	dock.isNPCShip   = false
 	dock.cachedJobs  = nil
+	ship:SetAttribute("IsNPCShip", false)
+	CargoDeliveryManager:ConfigurePlayerShip(player, ship)
 
 	return true, "Ship deployed successfully."
 end
@@ -526,6 +612,9 @@ RF_DespawnShip.OnServerInvoke = function(player, dockId)
 	if not dock.spawnedShip then return false, "No ship is docked here." end
 	if dock.isNPCShip then return false, "That's an NPC vessel — you can't undock it." end
 	if dock.spawnedBy ~= player.UserId then return false, "That's not your ship." end
+	if CargoDeliveryManager:ShipHasCargo(dock.spawnedShip) then
+		return false, "Unload the cargo before storing this ship."
+	end
 
 	dock.spawnedShip:Destroy()
 	dock.spawnedShip = nil
@@ -557,7 +646,18 @@ RF_GetCargoJobs.OnServerInvoke = function(player, dockId)
 		end
 	end
 
-	return available
+	return available, nil, getCargoDistanceSort(player)
+end
+
+RF_SetCargoDistanceSort.OnServerInvoke = function(player, direction)
+	if direction ~= "Ascending" and direction ~= "Descending" then
+		return false, "Invalid cargo distance sort."
+	end
+	local profile = PlayerProfiles[player]
+	if not profile then return false, "Player profile is not loaded." end
+	profile.Data.Preferences = profile.Data.Preferences or {}
+	profile.Data.Preferences.CargoDistanceSort = direction
+	return true, direction
 end
 
 RF_AcceptCargoJob.OnServerInvoke = function(player, dockId, jobId)
@@ -579,12 +679,12 @@ RF_AcceptCargoJob.OnServerInvoke = function(player, dockId, jobId)
 	if not job then return false, "Job not found." end
 
 	-- Claim on the dock
+	-- Register before claiming so a missing template/physical pickup slot cannot
+	-- leave an unusable contract reserved.
+	local added, addErr = CargoDeliveryManager:AddJob(player, dockId, jobId, job)
+	if not added then return false, addErr end
 	dock.claimedJobs[jobId] = true
 
-	-- Register with CargoDeliveryManager (handles expiry + slot tracking)
-	CargoDeliveryManager:AddJob(player, dockId, jobId, job)
-
-	-- TODO: Add cargo to ship, enable HUD, set owner attribute
 	return true, "Job accepted! Deliver " .. job.cargoName
 		.. " to " .. job.destination
 		.. " for §" .. tostring(job.payout) .. "."
@@ -593,6 +693,15 @@ end
 -- Returns the player's active cargo jobs with time remaining
 RF_GetPlayerCargo.OnServerInvoke = function(player)
 	return CargoDeliveryManager:GetActiveJobs(player)
+end
+
+RF_CancelCargoJob.OnServerInvoke = function(player, dockId, jobId)
+	if typeof(dockId) ~= "string"
+		or (typeof(jobId) ~= "string" and typeof(jobId) ~= "number")
+	then
+		return false, "Invalid cargo contract."
+	end
+	return CargoDeliveryManager:CancelJob(player, dockId, jobId)
 end
 
 print("[DockManager] Server initialized.")

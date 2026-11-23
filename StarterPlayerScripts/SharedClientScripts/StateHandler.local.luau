@@ -196,13 +196,17 @@ end)
 
 SprintAction.Released:Connect(function()
 	PlayerState.IsSprinting = false
-	humanoid.WalkSpeed = PlayerState.WalkSpeed
+	PlayerState.ResumeSprintAfterMovementAction = false
+	-- Releasing sprint decides what happens after the action; it should not
+	-- interrupt the current slide/roll speed or its height cleanup.
+	if not PlayerState.Sliding and not PlayerState.Rolling then
+		humanoid.WalkSpeed = PlayerState.WalkSpeed
+	end
 end)
 
 SprintAction.Pressed:Connect(function()
 	if (humanoid.WalkSpeed < 16) then return end
 	if (PlayerState.InWater) then return end
-	if (PlayerState.CarryingTempHold) then return end
 	if (((humanoid:GetState() == Enum.HumanoidStateType.Running) or (humanoid:GetState() == Enum.HumanoidStateType.RunningNoPhysics)) and humanoid.MoveDirection.Magnitude > 0) then
 		if (PlayerState.Crawling or PlayerState.Crouching) then return end
 		ContextActionService:UnbindAction(FREEZE_ACTION)
@@ -233,6 +237,7 @@ end)
 SlideAction.Released:Connect(function()
 	if (PlayerState.CurrentState == PlayerState.States.Sliding) then return end
 	if (PlayerState.IsSprinting) then
+		PlayerState.ResumeSprintAfterMovementAction = true
 		PlayerState.Sliding = true
 		PlayerState.IsSprinting = false
 		PlayerState.ChangeState(PlayerState.States.Sliding)
@@ -243,6 +248,7 @@ end)
 RollAction.Released:Connect(function()
 	if (PlayerState.CurrentState == PlayerState.States.Rolling) then return end
 	if (PlayerState.IsSprinting) then
+		PlayerState.ResumeSprintAfterMovementAction = true
 		PlayerState.Rolling = true
 		PlayerState.IsSprinting = false
 		PlayerState.ChangeState(PlayerState.States.Rolling)
@@ -945,6 +951,13 @@ CurrentHeldToolChangedEvent.OnClientEvent:Connect(function(toolName,slot)
 		game:GetService("ContextActionService"):UnbindAction("UseTool2")
 		toolActionGui.Enabled = false
 		toolActionGui.MainFrame.Actions["2"].Visible = false
+	elseif not itemsmodule[toolName] then
+		warn("StateHandler received an unknown held item:", toolName)
+		game:GetService("ContextActionService"):UnbindAction("UseTool")
+		game:GetService("ContextActionService"):UnbindAction("UseTool2")
+		toolActionGui.Enabled = false
+		toolActionGui.MainFrame.Actions["2"].Visible = false
+		return
 	else
 		game:GetService("ContextActionService"):BindAction("UseTool", UseTool, false, Enum.KeyCode.R,Enum.UserInputType.MouseButton1)
 		if (itemsmodule[toolName].ToolAction1) then

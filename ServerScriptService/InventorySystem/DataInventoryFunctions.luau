@@ -78,6 +78,10 @@ end
 
 local functions = {}
 
+local function replicateMoney(player, amount)
+	player:SetAttribute("Credits", math.max(0, tonumber(amount) or 0))
+end
+
 local ItemTypeToInventorySectionMap = {
 	["Weapon"]="Weapon",
 	["Artifact"]="Weapon",
@@ -100,7 +104,9 @@ local ItemTypeToInventorySectionMap = {
 }
 
 ProfileLoadedEvent.Event:Connect(function (player)
-	MoneyUpdatedEvent:FireClient(player,functions.GetTotalMoney(player))
+	local totalMoney = functions.GetTotalMoney(player) or 0
+	replicateMoney(player, totalMoney)
+	MoneyUpdatedEvent:FireClient(player, totalMoney)
 
 	functions.LoadPlayerClothing(player)
 
@@ -156,6 +162,7 @@ function functions.AddMoney(player,amount)
 
 	profile.Data.Money = profile.Data.Money + amount
 
+	replicateMoney(player, profile.Data.Money)
 	MoneyUpdatedEvent:FireClient(player,profile.Data.Money,amount)
 end
 
@@ -169,6 +176,7 @@ function functions.RemoveMoney(player,amount)
 		profile.Data.Money = profile.Data.Money - amount
 	end
 
+	replicateMoney(player, profile.Data.Money)
 	MoneyUpdatedEvent:FireClient(player,profile.Data.Money,-amount)
 
 end

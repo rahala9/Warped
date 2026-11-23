@@ -5,6 +5,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 
 local InventoryFunctions = require(ServerScriptService.InventorySystem.DataInventoryFunctions)
+local ContrabandInspectionService = require(
+	ServerScriptService:WaitForChild("CargoInspectionSystem"):WaitForChild("ContrabandInspectionService")
+)
 
 local itemsmodule = require(ReplicatedStorage:WaitForChild("InventorySystem"):WaitForChild("Items"))
 
@@ -73,7 +76,8 @@ local function BuildPlayerScanContext(player)
 	ctx.HasWeapon = InventoryFunctions.HasItemType(player,itemsmodule.ItemTypes.Weapon,true)
 
 	-- ILLICIT ITEMS (wire up later)
-	ctx.HasIllicit = InventoryFunctions.HasIllicitItem(player,true)
+	ctx.HasIllicit = InventoryFunctions.HasIllicitItem(player, true)
+		or ContrabandInspectionService:HasCarriedContrabandCargo(player)
 
 	-- SPECIES (enum value)
 	ctx.Species = ScannerConfigurations.Species.Human

@@ -119,7 +119,7 @@ local function updateLaunchPrompt()
 	if landingMessageActive then
 		launchLabel.Text = "LANDING ABORTED\n" .. SpaceFlightFunctions.LandingMessage
 	elseif launchState == "AwaitingLaunch" then
-		launchLabel.Text = "SHIP PARKED\n[SPACE]  LAUNCH"
+		launchLabel.Text = "SHIP PARKED\n[SPACE] LAUNCH   •   [E] EXIT"
 	elseif launchState == "Launching" then
 		launchLabel.Text = "LAUNCHING\nVertical thrusters engaged"
 	elseif launchState == "Flying" and SpaceFlightFunctions.LandingAvailable then

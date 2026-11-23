@@ -203,7 +203,7 @@ local function waitUntilSettledThenAnchor(model: Model, opts)
 			if stable >= REQUIRED_STABLE_TICKS then
 				
 				--Don't anchore if already held again.
-				if (model:GetAttribute("HeldBy")) then
+				if model:GetAttribute("HeldBy") or model:GetAttribute("MountedToShip") then
 					return true
 				end
 				
