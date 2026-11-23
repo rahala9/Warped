@@ -13,8 +13,13 @@
 
 local TweenService = game:GetService("TweenService")
 local Players      = game:GetService("Players")
+local Workspace    = game:GetService("Workspace")
 local player       = Players.LocalPlayer
 local PlayerGui    = player:WaitForChild("PlayerGui")
+-- The toolbelt is cloned after this module can be required. Never block here:
+-- StateHandler must connect equipment events immediately or it can miss the
+-- initial jetpack-equipped event entirely.
+local ToolbeltGui
 
 local RightHUDManager = {}
 
@@ -35,6 +40,7 @@ local ICON_SIZE       = 36
 local STACK_PADDING   = 6
 local EDGE_PADDING_TOP  = 10
 local EDGE_PADDING_SIDE = 16
+local DEFAULT_TOOLBELT_INSET = 104
 local TWEEN_INFO      = TweenInfo.new(0.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
 
 local STATE_ICON     = "icon"
@@ -70,12 +76,122 @@ local sg = make("ScreenGui", {
 
 local panels     = {}
 local panelOrder = {}
+local bottomReservations = {}
+
+local function findToolbeltGui()
+	if ToolbeltGui and ToolbeltGui.Parent then return ToolbeltGui end
+	local sharedGui = PlayerGui:FindFirstChild("SharedGUI")
+	ToolbeltGui = sharedGui and sharedGui:FindFirstChild("ToolbeltGui") or nil
+	return ToolbeltGui
+end
+
+local function isEffectivelyVisible(guiObject, toolbeltGui)
+	local current = guiObject
+	while current and current ~= toolbeltGui do
+		if current:IsA("GuiObject") and not current.Visible then return false end
+		current = current.Parent
+	end
+	return not toolbeltGui:IsA("LayerCollector") or toolbeltGui.Enabled
+end
+
+local function hasVisibleAppearance(guiObject)
+	if guiObject.BackgroundTransparency < 0.99 then return true end
+	if (guiObject:IsA("ImageLabel") or guiObject:IsA("ImageButton"))
+		and guiObject.Image ~= ""
+		and guiObject.ImageTransparency < 0.99
+	then
+		return true
+	end
+	if (guiObject:IsA("TextLabel") or guiObject:IsA("TextButton") or guiObject:IsA("TextBox"))
+		and guiObject.Text ~= ""
+		and guiObject.TextTransparency < 0.99
+	then
+		return true
+	end
+	return false
+end
+
+function RightHUDManager:GetBottomInset(rightSideWidth)
+	local camera = Workspace.CurrentCamera
+	local viewport = camera and camera.ViewportSize or Vector2.new(1280, 720)
+	local toolbeltGui = findToolbeltGui()
+	if not toolbeltGui then
+		return math.min(DEFAULT_TOOLBELT_INSET, math.max(48, math.min(240, viewport.Y * 0.45)))
+	end
+	if toolbeltGui:IsA("LayerCollector") and not toolbeltGui.Enabled then return 16 end
+	if toolbeltGui:IsA("GuiObject") and not toolbeltGui.Visible then return 16 end
+
+	local rightStart = viewport.X - math.min(rightSideWidth or 360, viewport.X)
+	local minimumTop
+	for _, descendant in ipairs(toolbeltGui:GetDescendants()) do
+		if not descendant:IsA("GuiObject")
+			or not isEffectivelyVisible(descendant, toolbeltGui)
+			or not hasVisibleAppearance(descendant)
+		then
+			continue
+		end
+
+		local position = descendant.AbsolutePosition
+		local size = descendant.AbsoluteSize
+		local bottom = position.Y + size.Y
+		if size.X > 2
+			and size.Y > 2
+			and position.X + size.X >= rightStart
+			and position.Y >= viewport.Y * 0.45
+			and position.Y < viewport.Y
+			and bottom >= viewport.Y * 0.7
+		then
+			minimumTop = minimumTop and math.min(minimumTop, position.Y) or position.Y
+		end
+	end
+
+	local maximumInset = math.max(48, math.min(240, viewport.Y * 0.45))
+	if minimumTop then
+		return math.clamp(viewport.Y - minimumTop + 12, 48, maximumInset)
+	end
+	return math.min(DEFAULT_TOOLBELT_INSET, maximumInset)
+end
+
+local function reservedBottomHeight()
+	local total = 0
+	for _, height in pairs(bottomReservations) do total += height end
+	return total
+end
 
 local function restack()
 	table.sort(panelOrder, function(a, b)
 		return (panels[a] and panels[a].order or 0)
 			< (panels[b] and panels[b].order or 0)
 	end)
+
+	local camera = Workspace.CurrentCamera
+	local viewport = camera and camera.ViewportSize or Vector2.new(1280, 720)
+	local panelWidth = math.max(160, math.min(PANEL_WIDTH, viewport.X - EDGE_PADDING_SIDE * 2))
+	local bottomLimit = viewport.Y
+		- RightHUDManager:GetBottomInset(panelWidth + EDGE_PADDING_SIDE * 2)
+		- reservedBottomHeight()
+	local availableHeight = math.max(0, bottomLimit - EDGE_PADDING_TOP)
+
+	local fixedHeight = 0
+	local desiredExpandedContent = 0
+	local visibleCount = 0
+	for _, id in ipairs(panelOrder) do
+		local p = panels[id]
+		if not p or p.hidden then continue end
+		visibleCount += 1
+		if p.state == STATE_ICON then
+			fixedHeight += ICON_SIZE
+		elseif p.state == STATE_HEADER then
+			fixedHeight += HEADER_HEIGHT
+		else
+			fixedHeight += HEADER_HEIGHT
+			desiredExpandedContent += p.currentHeight
+		end
+	end
+	if visibleCount > 1 then fixedHeight += (visibleCount - 1) * STACK_PADDING end
+	local contentScale = desiredExpandedContent > 0
+		and math.clamp((availableHeight - fixedHeight) / desiredExpandedContent, 0, 1)
+		or 1
 
 	local yOffset = EDGE_PADDING_TOP
 	for _, id in ipairs(panelOrder) do
@@ -90,12 +206,12 @@ local function restack()
 			xOff = -(ICON_SIZE + EDGE_PADDING_SIDE)
 		elseif p.state == STATE_HEADER then
 			h    = HEADER_HEIGHT
-			w    = PANEL_WIDTH
-			xOff = -(PANEL_WIDTH + EDGE_PADDING_SIDE)
+			w    = panelWidth
+			xOff = -(panelWidth + EDGE_PADDING_SIDE)
 		else
-			h    = HEADER_HEIGHT + p.currentHeight
-			w    = PANEL_WIDTH
-			xOff = -(PANEL_WIDTH + EDGE_PADDING_SIDE)
+			h    = HEADER_HEIGHT + math.floor(p.currentHeight * contentScale)
+			w    = panelWidth
+			xOff = -(panelWidth + EDGE_PADDING_SIDE)
 		end
 
 		TweenService:Create(p.frame, TWEEN_INFO, {
@@ -281,5 +397,62 @@ function RightHUDManager:SetVisible(id, visible)
 	end
 	restack()
 end
+
+function RightHUDManager:SetBottomReservation(id, height)
+	height = math.max(0, tonumber(height) or 0)
+	if bottomReservations[id] == height then return end
+	bottomReservations[id] = height
+	restack()
+end
+
+function RightHUDManager:RefreshLayout()
+	restack()
+end
+
+local viewportConnection
+local function bindViewport()
+	if viewportConnection then viewportConnection:Disconnect() end
+	local camera = Workspace.CurrentCamera
+	if camera then
+		viewportConnection = camera:GetPropertyChangedSignal("ViewportSize"):Connect(restack)
+	end
+	restack()
+end
+
+Workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(bindViewport)
+
+local toolbeltConnections = {}
+local function bindToolbelt(toolbeltGui)
+	for _, connection in ipairs(toolbeltConnections) do connection:Disconnect() end
+	table.clear(toolbeltConnections)
+	ToolbeltGui = toolbeltGui
+	if not toolbeltGui then return end
+	if toolbeltGui:IsA("LayerCollector") then
+		table.insert(toolbeltConnections, toolbeltGui:GetPropertyChangedSignal("Enabled"):Connect(restack))
+	end
+	if toolbeltGui:IsA("GuiObject") then
+		table.insert(toolbeltConnections, toolbeltGui:GetPropertyChangedSignal("Visible"):Connect(restack))
+	end
+	table.insert(toolbeltConnections, toolbeltGui.DescendantAdded:Connect(function() task.defer(restack) end))
+	table.insert(toolbeltConnections, toolbeltGui.DescendantRemoving:Connect(function() task.defer(restack) end))
+	table.insert(toolbeltConnections, toolbeltGui.AncestryChanged:Connect(function(_, parent)
+		if not parent then bindToolbelt(nil) end
+	end))
+	task.defer(restack)
+end
+
+local initialToolbelt = findToolbeltGui()
+if initialToolbelt then bindToolbelt(initialToolbelt) end
+PlayerGui.DescendantAdded:Connect(function(descendant)
+	if descendant.Name == "ToolbeltGui" and descendant.Parent and descendant.Parent.Name == "SharedGUI" then
+		bindToolbelt(descendant)
+	end
+end)
+-- Close the small race between the initial lookup and connecting DescendantAdded.
+if not ToolbeltGui then
+	local lateToolbelt = findToolbeltGui()
+	if lateToolbelt then bindToolbelt(lateToolbelt) end
+end
+bindViewport()
 
 return RightHUDManager

@@ -10,6 +10,8 @@ local Effects = require(ReplicatedStorage:WaitForChild("SharedModules"):WaitForC
 local InventoryFunctions = require(ServerScriptService.InventorySystem.DataInventoryFunctions)
 local EffectsFunctions = require(ServerScriptService.Data.DataEffectsFunctions)
 local ProgressFunctions = require(ServerScriptService.Data.DataProgressFunctions)
+local ShipFunctions = require(ServerScriptService.Data.DataShipFunctions)
+local ShipsFolder = ReplicatedStorage:WaitForChild("SharedClientAssets"):WaitForChild("Ships")
 
 local function isAdmin(player)
 	return RunService:IsStudio() or Config.AdminUserIds[player.UserId] == true
@@ -78,6 +80,21 @@ adminEvent.OnServerEvent:Connect(function(player, action, arg, arg2)
 				added ~= false,
 				string.format("Gave %d x %s to %s.", amount, itemName, target.Name)
 			)
+		end
+	elseif action == "GrantShip" or action == "RevokeShip" then
+		local payload = typeof(arg) == "table" and arg or {Name = arg}
+		local target = resolveTarget(player, payload)
+		local shipName = payload.Name
+		if not target then
+			respond(player, false, "Target player is no longer available.")
+		elseif typeof(shipName) ~= "string" or not ShipsFolder:FindFirstChild(shipName) then
+			respond(player, false, "Unknown ship: " .. tostring(shipName))
+		elseif action == "GrantShip" then
+			local ok, message = ShipFunctions.GrantShip(target, shipName, "Admin:" .. player.UserId)
+			respond(player, ok, ok and string.format("Granted %s to %s permanently.", shipName, target.Name) or message)
+		else
+			local ok, message = ShipFunctions.RevokeShip(target, shipName)
+			respond(player, ok, ok and string.format("Revoked %s from %s.", shipName, target.Name) or message)
 		end
 	elseif action == "AddXP" then
 		ProgressFunctions.AddXP(player, tonumber(arg) or 0)

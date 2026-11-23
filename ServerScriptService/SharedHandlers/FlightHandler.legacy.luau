@@ -19,6 +19,9 @@ end
 
 local InventoryFunctions = require(ServerScriptService.InventorySystem.DataInventoryFunctions)
 local StatesFunctions = require(ServerScriptService.Data.DataStatesFunctions)
+local CargoDeliveryManager = require(ServerScriptService.SharedServices.CargoDeliveryManager)
+local ShipFunctions = require(ServerScriptService.Data.DataShipFunctions)
+local MessagePlayerEvent = ReplicatedStorage:WaitForChild("SharedRemotes"):WaitForChild("MessagePlayer")
 
 local SHIP_TAG = "SpaceShip"
 local GROUP_SHIP = "Ship"
@@ -212,6 +215,7 @@ local function doExitShip(player: Player, ship: Model)
 
 	st.pilot = nil
 	StatesFunctions.SetCurrentShip(player, nil)
+	CargoDeliveryManager:SetCargoPromptEnabled(ship, true)
 
 	-- Revoke client's physics ownership FIRST
 	-- Now server controls the ship, client can't fight our velocity zero
@@ -254,6 +258,9 @@ local function SetupShip(inst: Instance)
 	end
 
 	ShipState[inst] = { pilot = nil, promptConn = nil }
+	-- Register the physical cargo mount before anyone enters the ship. A placed
+	-- ship is bound at Enter only after persistent profile ownership is verified.
+	CargoDeliveryManager:ConfigureShip(inst)
 
 	-- FIX 1: Disable prompt immediately on the main thread before any yield
 	-- FIX 2: Guard with st.pilot so a second trigger while entering is ignored
@@ -264,6 +271,23 @@ local function SetupShip(inst: Instance)
 
 		-- Guard: already has a pilot, ignore
 		if not st or st.pilot then return end
+		if inst:GetAttribute("IsNPCShip") then
+			MessagePlayerEvent:FireClient(player, "This is a commercial vessel, not your ship.")
+			return
+		end
+
+		-- A placed ship can bind to a player only when their persistent profile
+		-- already contains this ship type. Dock-spawned ships are pre-bound.
+		local ownerUserId = inst:GetAttribute("OwnerUserId")
+		if ownerUserId and ownerUserId ~= player.UserId then
+			MessagePlayerEvent:FireClient(player, "You do not own this ship.")
+			return
+		end
+		if not ShipFunctions.OwnsShip(player, inst.Name) then
+			MessagePlayerEvent:FireClient(player, "You do not own this ship.")
+			return
+		end
+		CargoDeliveryManager:ConfigurePlayerShip(player, inst)
 
 		-- FIX 1: Disable prompt immediately on main thread before any yields
 		p.Enabled = false
@@ -346,6 +370,7 @@ local function SetupShip(inst: Instance)
 
 			-- 8) Tell client to start flying (client creates the player→ship weld)
 			st.pilot = player
+			CargoDeliveryManager:SetCargoPromptEnabled(inst, false)
 			StatesFunctions.SetCurrentShip(player, inst)
 			SetPilotedShip:FireClient(player, inst)
 

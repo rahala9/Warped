@@ -4,6 +4,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local DoorFunctions = require(ServerScriptService.SharedFunctions.DoorFunctions)
 local TeleporterFunctions = require(ServerScriptService.SharedFunctions.TeleporterFunctions)
 local NPCRemoteControlFunctions = require(ServerScriptService.SharedFunctions.NPCRemoteControlFunctions)
+local LaserDoorService = require(ServerScriptService.SharedServices.LaserDoorService)
 
 local TerminalActions = {}
 
@@ -83,38 +84,7 @@ function TerminalActions.ToggleLaserDoor(config, player)
 		return 
 	end
 
-	local laserBeamWall = laserDoor:FindFirstChild("LaserBeamWall")
-
-	if not laserBeamWall then return end
-	local killBlock = laserBeamWall:FindFirstChild("Kill")
-	
-	laserDoor:SetAttribute("Enabled", false)
-	if killBlock and killBlock:IsA("BasePart") then
-		killBlock.CanTouch = false
-	end
-
-	-- Disable lasers
-	for _, laserBeam in pairs(laserBeamWall:GetChildren()) do
-		if laserBeam:IsA("Model") and laserBeam.Name == "LaserBeam" then
-			laserBeam.PrimaryPart.Beam.Enabled = false
-			laserBeam.PrimaryPart.Part.Transparency = 1
-		end
-	end
-
-	-- Re-enable after duration
-	task.delay(config.duration or 5, function()
-		for _, laserBeam in pairs(laserBeamWall:GetChildren()) do
-			if laserBeam:IsA("Model") and laserBeam.Name == "LaserBeam" then
-				laserBeam.PrimaryPart.Beam.Enabled = true
-				laserBeam.PrimaryPart.Part.Transparency = 0.5
-			end
-		end
-
-		if killBlock and killBlock.Parent then
-			killBlock.CanTouch = true
-		end
-		laserDoor:SetAttribute("Enabled", true)
-	end)
+	LaserDoorService:DisableFor(laserDoor, config.duration or 5)
 end
 
 -- Action: Give Data

@@ -13,6 +13,12 @@ enemy.enemies = {}
 -- A counter to keep track of the number of enemy objects that have been created
 local enemyCounter = 0
 
+local function formatHealthText(currentHealth, maximumHealth)
+	local displayedCurrent = math.max(0, math.round(currentHealth))
+	local displayedMaximum = math.max(0, math.round(maximumHealth))
+	return string.format("%d / %d", displayedCurrent, displayedMaximum)
+end
+
 local function shallowCopy(original)
 	local copy = {}
 	for key, value in pairs(original) do
@@ -196,7 +202,10 @@ function enemy.newEnemy(enemyName,position,spawnerName,size,additionalTags)
 
 	local billboard = EnemyBillboard:Clone() --self["root"]:FindFirstChild("EnemyHealth")
 	if (billboard) then
-		billboard.EnemyHealthBarFrame.HealthText.Text = self.health.main.." / "..enemiesModule[enemyName].Health.main
+		billboard.EnemyHealthBarFrame.HealthText.Text = formatHealthText(
+			self.health.main,
+			enemiesModule[enemyName].Health.main
+		)
 		billboard.Frame.XFrame.Level.Text = enemiesModule[enemyName].Level --TODO should show based on how difficult the enemy is compared to you
 
 		if (billboard.Frame["XFrame"]) then

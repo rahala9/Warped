@@ -70,6 +70,7 @@ local playerState = {
 	RollSpeed = 20,
 	NormalHeight = 3.471999883651733,
 	CrawlingHeight = 1.972, -- normal - 1.5,
+	ResumeSprintAfterMovementAction = false,
 	SittingHeight = 6,
 	LastPushedObject = nil,
 	NumberOfItemsCarried = 0,
@@ -700,10 +701,14 @@ function playerState.Init(player)
 	local carryDeliveryCrateIdleAnimation = Instance.new("Animation")
 	carryDeliveryCrateIdleAnimation.AnimationId = "http://www.roblox.com/asset/?id=131743828707045"  --105786603450444
 	local carryDeliveryCrateIdleTrack = humanoid:LoadAnimation(carryDeliveryCrateIdleAnimation)
+	carryDeliveryCrateIdleTrack.Priority = Enum.AnimationPriority.Action2
+	carryDeliveryCrateIdleTrack.Looped = true
 
 	local carryDeliveryCrateAnimation = Instance.new("Animation")
 	carryDeliveryCrateAnimation.AnimationId = "http://www.roblox.com/asset/?id=91935768790276"   --88532136578051
 	local carryDeliveryCrateTrack = humanoid:LoadAnimation(carryDeliveryCrateAnimation)
+	carryDeliveryCrateTrack.Priority = Enum.AnimationPriority.Action2
+	carryDeliveryCrateTrack.Looped = true
 
 	local carrySmallAnimation = Instance.new("Animation")
 	carrySmallAnimation.AnimationId = "http://www.roblox.com/asset/?id=73770209584893" --103648676719465"
@@ -712,10 +717,14 @@ function playerState.Init(player)
 	local carrySmallIdleAnimation = Instance.new("Animation")
 	carrySmallIdleAnimation.AnimationId = "http://www.roblox.com/asset/?id=97804909394019" --73770209584893" --89608989633364"
 	local carrySmallIdleTrack = humanoid:LoadAnimation(carrySmallIdleAnimation)
+	carrySmallIdleTrack.Priority = Enum.AnimationPriority.Action2
+	carrySmallIdleTrack.Looped = true
 
 	local carryMediumIdleAnimation = Instance.new("Animation")
 	carryMediumIdleAnimation.AnimationId = "http://www.roblox.com/asset/?id=105461602523775" --139739797558798" -- little bit smaller = 105554160615356" --73770209584893" --89608989633364"
 	local carryMediumIdleTrack = humanoid:LoadAnimation(carryMediumIdleAnimation)
+	carryMediumIdleTrack.Priority = Enum.AnimationPriority.Action2
+	carryMediumIdleTrack.Looped = true
 
 
 	if (diveTrackConnection) then
@@ -1059,10 +1068,12 @@ function playerState.Init(player)
 		--["GaterMadeDelivery"]={Name="GaterMadeDelivery",Animation=carryDeliveryCrateIdleTrack,AnimationMoving=carryDeliveryCrateTrack,Playing=false,AnimationSpeed=1,AnimationFadeTime=0,AnimationWeight=1,NoMix=true},
 		--["CoconutDelivery"]={Name="CoconutDelivery",Animation=carrySmallIdleTrack,AnimationMoving=carrySmallTrack,Playing=false,AnimationSpeed=1,AnimationFadeTime=0,AnimationWeight=1,NoMix=true},
 		--["BeeHive"]={Name="BeeHive",Animation=carrySmallIdleTrack,AnimationMoving=carrySmallTrack,Playing=false,AnimationSpeed=1,AnimationFadeTime=0,AnimationWeight=1,NoMix=true},
-		["Cargo1"]={Name="Cargo1",Animation=carryMediumIdleTrack,AnimationMoving=carryMediumIdleTrack,Playing=false,AnimationSpeed=1,AnimationFadeTime=0,AnimationWeight=1,NoMix=false},
-		["Cargo2"]={Name="Cargo2",Animation=carrySmallIdleTrack,AnimationMoving=carrySmallIdleTrack,Playing=false,AnimationSpeed=1,AnimationFadeTime=0,AnimationWeight=1,NoMix=false},
-		["Cargo3"]={Name="Cargo3",Animation=carryMediumIdleTrack,AnimationMoving=carryMediumIdleTrack,Playing=false,AnimationSpeed=1,AnimationFadeTime=0,AnimationWeight=1,NoMix=false},
-		["Cargo4"]={Name="Cargo4",Animation=carryMediumIdleTrack,AnimationMoving=carryMediumIdleTrack,Playing=false,AnimationSpeed=1,AnimationFadeTime=0,AnimationWeight=1,NoMix=false},
+		-- These are upper-body carry poses. Reuse the pose while moving so normal
+		-- lower-body locomotion remains active instead of suppressing it.
+		["Cargo1"]={Name="Cargo1",Animation=carryMediumIdleTrack,AnimationMoving=carryMediumIdleTrack,Playing=false,AnimationSpeed=1,AnimationFadeTime=0.1,AnimationWeight=1,NoMix=false},
+		["Cargo2"]={Name="Cargo2",Animation=carrySmallIdleTrack,AnimationMoving=carrySmallIdleTrack,Playing=false,AnimationSpeed=1,AnimationFadeTime=0.1,AnimationWeight=1,NoMix=false},
+		["Cargo3"]={Name="Cargo3",Animation=carryMediumIdleTrack,AnimationMoving=carryMediumIdleTrack,Playing=false,AnimationSpeed=1,AnimationFadeTime=0.1,AnimationWeight=1,NoMix=false},
+		["Cargo4"]={Name="Cargo4",Animation=carryMediumIdleTrack,AnimationMoving=carryMediumIdleTrack,Playing=false,AnimationSpeed=1,AnimationFadeTime=0.1,AnimationWeight=1,NoMix=false},
 
 
 		["Rocket"]={Name="Rocket",Animation=idleTrack,AnimationMoving=walkingFullBodyTrack,AnimationRunning=upperBodyWalkingTrack,AnimationWalking=walkingFullBodyTrack,AnimationUsing=setObjectOnGroundTrack,Playing=false,AnimationSpeed=1,AnimationFadeTime=0,AnimationWeight=1},
@@ -1075,6 +1086,29 @@ function playerState.Init(player)
 		--["FryingPan"]={Name="FryingPan",Animation=nil,AnimationMoving=nil,Playing=false,AnimationSpeed=1,AnimationFadeTime=0,AnimationWeight=1},
 
 	}
+
+	-- Cargo templates register their held-item definitions automatically. Give
+	-- every new template a carry state as well, while preserving any explicitly
+	-- configured states above. Set CarryStyle="Small" on a template when it
+	-- should use the closer small-cargo pose; Medium is the default.
+	local cargoTemplates = ReplicatedStorage:WaitForChild("SharedClientAssets"):WaitForChild("Cargo")
+	for _, template in ipairs(cargoTemplates:GetChildren()) do
+		if template:IsA("Model") and not playerState.ToolStates[template.Name] then
+			local carryTrack = template:GetAttribute("CarryStyle") == "Small"
+				and carrySmallIdleTrack
+				or carryMediumIdleTrack
+			playerState.ToolStates[template.Name] = {
+				Name = template.Name,
+				Animation = carryTrack,
+				AnimationMoving = carryTrack,
+				Playing = false,
+				AnimationSpeed = 1,
+				AnimationFadeTime = 0.1,
+				AnimationWeight = 1,
+				NoMix = false,
+			}
+		end
+	end
 
 	playerState.ToolAnimationTypes = {
 		["Idle"]={Name="Idle"},
@@ -1104,26 +1138,36 @@ function playerState.Init(player)
 		HUDOpen1:Play()
 	end)
 	
+	local function finishGroundMovementAction()
+		local resumeSprint = playerState.ResumeSprintAfterMovementAction == true
+			and humanoid.MoveDirection.Magnitude > 0
+		playerState.ResumeSprintAfterMovementAction = false
+		playerState.Crouching = false
+		playerState.Sliding = false
+		playerState.Rolling = false
+		playerState.IsSprinting = resumeSprint
+		humanoid.HipHeight = playerState.NormalHeight
+		humanoid.WalkSpeed = resumeSprint and playerState.RunSpeed or playerState.WalkSpeed
+
+		if humanoid.MoveDirection.Magnitude <= 0 then
+			playerState.ChangeState(playerState.States.Idle)
+		elseif resumeSprint then
+			playerState.ChangeState(playerState.States.Running)
+		else
+			playerState.ChangeState(playerState.States.Walking)
+		end
+	end
+
 	local slideEvent
 	slideEvent = slideTrack:GetMarkerReachedSignal("End"):Connect(function(paramString)
 		if playerState.CurrentState ~= playerState.States.Sliding then return end
-
-		playerState.Crouching = false
-		playerState.Sliding = false
-		--playerState.IsSprinting = true
-		humanoid.WalkSpeed = playerState.RunSpeed
-		playerState.ChangeState(playerState.States.Running)
+		finishGroundMovementAction()
 	end)
 	
 	local rollEvent
 	rollEvent = rollTrack:GetMarkerReachedSignal("End"):Connect(function(paramString)
 		if playerState.CurrentState ~= playerState.States.Rolling then return end
-
-		playerState.Crouching = false
-		playerState.Rolling = false
-		playerState.IsSprinting = true
-		humanoid.WalkSpeed = playerState.RunSpeed
-		playerState.ChangeState(playerState.States.Running)
+		finishGroundMovementAction()
 	end)
 
 	playerState.CurrentState = playerState.States.Idle

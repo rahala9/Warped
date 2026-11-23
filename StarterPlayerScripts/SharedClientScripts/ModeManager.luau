@@ -11,7 +11,6 @@ local ShipBuildGui = SharedGUI:WaitForChild("ShipBuildGui")
 local EmotesGui = SharedGUI:WaitForChild("EmotesGui")
 local HackingGui = SharedGUI:WaitForChild("HackingGui")
 local FlightHUDGui = SharedGUI:WaitForChild("FlightHUDGui")
-local AdminGui = SharedGUI:WaitForChild("AdminGui")
 local NPCRemoteControlGui = SharedGUI:WaitForChild("NPCRemoteControlGui")
 
 --Input Context
@@ -49,6 +48,7 @@ local Modes = {
 
 ModeManager.Modes = Modes
 ModeManager.CurrentMode = Modes.Gameplay
+local registeredModeGuis = {}
 
 -- Simple event so other scripts can react
 local modeChangedEvent = Instance.new("BindableEvent")
@@ -75,8 +75,10 @@ local function applyMode(mode)
 	EmotesGui.Enabled = false
 	HackingGui.Enabled = false
 	FlightHUDGui.Enabled = false
-	AdminGui.Enabled	= false
 	NPCRemoteControlGui.Enabled = false
+	for _, registeredGui in pairs(registeredModeGuis) do
+		if registeredGui.Parent then registeredGui.Enabled = false end
+	end
 
 	if mode == Modes.Gameplay then
 		GameplayContext.Enabled = true
@@ -99,8 +101,8 @@ local function applyMode(mode)
 		FlightHUDGui.Enabled = true
 	elseif mode == Modes.Admin then
 		AdminContext.Enabled = true
-		AdminGui.Enabled = true
-		--FlightHUDGui.Enabled = true
+		local adminGui = registeredModeGuis[Modes.Admin]
+		if adminGui and adminGui.Parent then adminGui.Enabled = true end
 	elseif mode == Modes.NPCRemoteControl then
 		NPCRemoteControlContext.Enabled = true
 		NPCRemoteControlGui.Enabled = true
@@ -110,25 +112,23 @@ local function applyMode(mode)
 end
 
 function ModeManager:SetMode(newMode)
-	if newMode == self.CurrentMode then 
-		print("TEST CONTEXT mode is same so switching to Gameplay mode")
-		--If setting same mode then cancel that mode
-		self.CurrentMode = Modes.Gameplay
-		applyMode(Modes.Gameplay)
-		return 
-	end
-
-	print("TEST CONTEXT mode is NOT same so switching mode:",newMode)
-	
-	self.CurrentMode = newMode
-	applyMode(newMode)
+	local resolvedMode = newMode == self.CurrentMode and Modes.Gameplay or newMode
+	self.CurrentMode = resolvedMode
+	applyMode(resolvedMode)
 
 	-- Fire event so other systems can react
-	modeChangedEvent:Fire(newMode)
+	modeChangedEvent:Fire(resolvedMode)
 end
 
 function ModeManager:GetMode()
 	return self.CurrentMode
+end
+
+function ModeManager:RegisterGui(mode, screenGui)
+	assert(Modes[mode] == mode, "Unknown mode: " .. tostring(mode))
+	assert(screenGui and screenGui:IsA("ScreenGui"), "RegisterGui requires a ScreenGui")
+	registeredModeGuis[mode] = screenGui
+	screenGui.Enabled = self.CurrentMode == mode
 end
 
 -- Initialize

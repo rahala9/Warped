@@ -149,8 +149,17 @@ function EnemySpawningManager:_spawnEnemy(spawner)
 		enemyType,
 		config.SpawnPoint,
 		config.CollectionTag,
+		nil,
 		config.AdditionalTags
 	)
+
+	-- ModelAttributes are intentionally data-driven so role-specific systems
+	-- can discover spawned NPCs without knowing about this spawner manager.
+	if config.ModelAttributes then
+		for attributeName, value in pairs(config.ModelAttributes) do
+			enemy.char:SetAttribute(attributeName, value)
+		end
+	end
 	
 	-- Apply base configuration
 	enemy.home = config.HomePoint

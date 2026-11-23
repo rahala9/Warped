@@ -1,5 +1,6 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
 local CurrentPlayer = game.Players.LocalPlayer
 
 local ModeManager = require(script.Parent:WaitForChild("ModeManager"))
@@ -10,6 +11,22 @@ local ContextSwitchingContext = InputRoot:WaitForChild("ContextSwitchingContext"
 
 local SwitchContextToEmotesAction = ContextSwitchingContext:WaitForChild("SwitchContextToEmotesAction")
 local ShowAdminAction = ContextSwitchingContext:WaitForChild("ShowAdminAction")
+local AdminConfig = require(ReplicatedStorage:WaitForChild("AdminSystem"):WaitForChild("Config"))
+
+local function configureAdminAction()
+	for _, child in ipairs(ShowAdminAction:GetChildren()) do
+		if child:IsA("InputBinding") then child:Destroy() end
+	end
+	local binding = Instance.new("InputBinding")
+	binding.Name = "KeyboardF8"
+	binding.KeyCode = AdminConfig.ToggleKey
+	binding.Parent = ShowAdminAction
+	ShowAdminAction.Type = Enum.InputActionType.Bool
+	ShowAdminAction.DisplayName = "Toggle admin panel"
+	ShowAdminAction.Enabled = RunService:IsStudio() or AdminConfig.AdminUserIds[CurrentPlayer.UserId] == true
+end
+
+configureAdminAction()
 
 
 local Remotes = ReplicatedStorage:WaitForChild("SharedRemotes")
@@ -28,7 +45,7 @@ SwitchContextToEmotesAction.Pressed:Connect(function()
 end)
 
 ShowAdminAction.Pressed:Connect(function()
-	ModeManager:SetMode(ModeManager.Modes.Admin)
+	if ShowAdminAction.Enabled then ModeManager:SetMode(ModeManager.Modes.Admin) end
 end)
 
 SetPilotedShip.OnClientEvent:Connect(function(pilotedShip)

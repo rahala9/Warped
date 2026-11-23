@@ -8,11 +8,32 @@
 
 local TweenService = game:GetService("TweenService")
 local Players      = game:GetService("Players")
+local ProximityPromptService = game:GetService("ProximityPromptService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local GuiMessageFunctions = require(
+	ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("GuiMessageFunctions")
+)
 
 local player    = Players.LocalPlayer
 local PlayerGui = player:WaitForChild("PlayerGui")
 
 local DockManagerUI = {}
+local modalOpen = false
+local promptsWereEnabled = true
+
+local function beginModal()
+	if modalOpen then return end
+	modalOpen = true
+	promptsWereEnabled = ProximityPromptService.Enabled
+	ProximityPromptService.Enabled = false
+end
+
+local function endModal()
+	if not modalOpen then return end
+	modalOpen = false
+	ProximityPromptService.Enabled = promptsWereEnabled
+end
 
 -- ── Constants ─────────────────────────────────────────────────────────────────
 local COLORS = {
@@ -162,57 +183,16 @@ end
 
 -- ── Notification Toast ────────────────────────────────────────────────────────
 function DockManagerUI:ShowNotification(message, success)
-	local sg = ensureGui()
-
 	local accentColor = success and COLORS.SUCCESS or COLORS.ERROR
-
-	local toast = make("Frame", {
-		Name = "Toast",
-		Size = UDim2.new(0, 340, 0, 52),
-		Position = UDim2.new(0.5, -170, 0, -60),
-		BackgroundColor3 = COLORS.BG2,
-		BorderSizePixel = 0,
-		ZIndex = 20,
-	}, sg)
-	makeCorner(toast, 8)
-	makeStroke(toast, accentColor, 1.5)
-
-	-- Accent bar on left edge
-	make("Frame", {
-		Size = UDim2.new(0, 3, 1, 0),
-		BackgroundColor3 = accentColor,
-		BorderSizePixel = 0,
-		ZIndex = 21,
-	}, toast)
-	makeCorner(toast, 8)
-
-	make("TextLabel", {
-		Text = message,
-		TextSize = 14,
-		Font = FONT_HEADER,
-		TextColor3 = COLORS.TEXT,
-		BackgroundTransparency = 1,
-		Size = UDim2.new(1, -20, 1, 0),
-		Position = UDim2.new(0, 14, 0, 0),
-		TextXAlignment = Enum.TextXAlignment.Left,
-		TextWrapped = true,
-		ZIndex = 22,
-	}, toast)
-
-	TweenService:Create(toast, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-		Position = UDim2.new(0.5, -170, 0, 20),
-	}):Play()
-
-	task.delay(2.8, function()
-		if toast and toast.Parent then
-			TweenService:Create(toast, TweenInfo.new(0.3), {
-				Position = UDim2.new(0.5, -170, 0, -60),
-			}):Play()
-			task.delay(0.35, function()
-				if toast and toast.Parent then toast:Destroy() end
-			end)
-		end
-	end)
+	GuiMessageFunctions.DisplayOnScreenMessage(
+		message,
+		nil,
+		false,
+		nil,
+		nil,
+		accentColor,
+		8
+	)
 end
 
 function DockManagerUI:ShowError(msg)
@@ -221,6 +201,7 @@ end
 
 function DockManagerUI:Close()
 	clearGui()
+	endModal()
 end
 
 -- ── Backdrop ──────────────────────────────────────────────────────────────────
@@ -314,6 +295,7 @@ end
 
 -- ── Ship Selection UI ─────────────────────────────────────────────────────────
 function DockManagerUI:ShowShipSelectUI(opts)
+	beginModal()
 	clearGui()
 	local sg = ensureGui()
 
@@ -419,6 +401,7 @@ end
 
 -- ── Occupied (Player Ship) UI ─────────────────────────────────────────────────
 function DockManagerUI:ShowOccupiedUI(opts)
+	beginModal()
 	clearGui()
 	local sg = ensureGui()
 
@@ -512,6 +495,7 @@ end
 
 -- ── Cargo Jobs UI ─────────────────────────────────────────────────────────────
 function DockManagerUI:ShowCargoUI(opts)
+	beginModal()
 	clearGui()
 	local sg = ensureGui()
 
@@ -555,9 +539,64 @@ function DockManagerUI:ShowCargoUI(opts)
 
 	local selectedJobId = nil
 	local jobFrames = {}
+	local distanceSort = opts.distanceSort == "Descending" and "Descending" or "Ascending"
+	local displayJobs = table.clone(opts.jobs)
+
+	local function sortDisplayJobs()
+		table.sort(displayJobs, function(a, b)
+			local aDistance = tonumber(a.distance) or 0
+			local bDistance = tonumber(b.distance) or 0
+			if aDistance == bDistance then
+				return tostring(a.id) < tostring(b.id)
+			end
+			if distanceSort == "Ascending" then
+				return aDistance < bDistance
+			end
+			return aDistance > bDistance
+		end)
+	end
+	sortDisplayJobs()
+
+	local sortBar = make("Frame", {
+		Size = UDim2.new(1, 0, 0, 24),
+		BackgroundTransparency = 1,
+		ZIndex = 4,
+	}, content)
+	make("TextLabel", {
+		Text = "SORT CONTRACTS",
+		TextSize = 10,
+		Font = FONT_HEADER,
+		TextColor3 = COLORS.TEXT_DIM,
+		BackgroundTransparency = 1,
+		Size = UDim2.new(0, 110, 1, 0),
+		TextXAlignment = Enum.TextXAlignment.Left,
+		ZIndex = 5,
+	}, sortBar)
+	local sortButton = make("TextButton", {
+		Text = "",
+		TextSize = 10,
+		Font = FONT_HEADER,
+		TextColor3 = COLORS.ACCENT,
+		BackgroundColor3 = COLORS.PANEL,
+		BorderSizePixel = 0,
+		Size = UDim2.new(0, 154, 1, 0),
+		Position = UDim2.new(1, -154, 0, 0),
+		AutoButtonColor = false,
+		ZIndex = 5,
+	}, sortBar)
+	makeCorner(sortButton, 5)
+	makeStroke(sortButton, COLORS.BORDER_DIM, 1)
+
+	local function updateSortButton()
+		sortButton.Text = distanceSort == "Ascending"
+			and "DISTANCE ↑  NEAREST"
+			or "DISTANCE ↓  FARTHEST"
+	end
+	updateSortButton()
 
 	local scroll = make("ScrollingFrame", {
-		Size = UDim2.new(1, 0, 1, -90),
+		Size = UDim2.new(1, 0, 1, -120),
+		Position = UDim2.new(0, 0, 0, 30),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		ScrollBarThickness = 4,
@@ -586,7 +625,7 @@ function DockManagerUI:ShowCargoUI(opts)
 		end
 	end
 
-	for _, job in ipairs(opts.jobs) do
+	for displayIndex, job in ipairs(displayJobs) do
 		local distLabel = job.distanceLabel or "Local"
 		local distColor = DIST_COLOR[distLabel] or COLORS.TEXT
 
@@ -595,7 +634,7 @@ function DockManagerUI:ShowCargoUI(opts)
 			Size = UDim2.new(1, -4, 0, 106),
 			BackgroundColor3 = COLORS.PANEL,
 			BorderSizePixel = 0,
-			LayoutOrder = job.id,
+			LayoutOrder = displayIndex,
 			ZIndex = 5,
 		}, scroll)
 		makeCorner(row, 8)
@@ -743,7 +782,7 @@ function DockManagerUI:ShowCargoUI(opts)
 		}, row)
 
 		make("TextLabel", {
-			Text = "PAYOUT",
+			Text = (job.riskPremium or 0) > 0 and "UP TO" or "PAYOUT",
 			TextSize = 10,
 			Font = FONT_HEADER,
 			TextColor3 = COLORS.TEXT_DIM,
@@ -773,12 +812,32 @@ function DockManagerUI:ShowCargoUI(opts)
 			or dangerPct < 50  and "MID RISK"
 			or dangerPct < 80  and "HIGH RISK"
 			or "EXTREME"
+		local risks = job.risks or {}
+		local fragileSeverity = typeof(risks.Fragile) == "number" and risks.Fragile > 0 and risks.Fragile or nil
+		local biohazardSeverity = typeof(risks.Biohazardous) == "number" and risks.Biohazardous > 0 and risks.Biohazardous or nil
+		local creatureSeverity = typeof(risks.ContainedCreature) == "number" and risks.ContainedCreature > 0
+			and risks.ContainedCreature or nil
+		local isFragile = fragileSeverity ~= nil or table.find(risks, "Fragile") ~= nil
+		local isBiohazardous = biohazardSeverity ~= nil or table.find(risks, "Biohazardous") ~= nil
+		local isContainedCreature = creatureSeverity ~= nil or table.find(risks, "ContainedCreature") ~= nil
+		local riskLabels = {}
+		if isFragile then
+			table.insert(riskLabels, fragileSeverity and string.format("FRAGILE %d%%", math.round(fragileSeverity * 100)) or "FRAGILE")
+		end
+		if isBiohazardous then
+			table.insert(riskLabels, biohazardSeverity and string.format("BIO %d%%", math.round(biohazardSeverity * 100)) or "BIOHAZARD")
+		end
+		if isContainedCreature then
+			table.insert(riskLabels, creatureSeverity and string.format("LIVE %d%%", math.round(creatureSeverity * 100)) or "LIVE CARGO")
+		end
+		if dangerPct > 0 then table.insert(riskLabels, dangerText) end
 		local dangerColor = dangerPct == 0 and COLORS.DIST_LOCAL
 			or dangerPct < 50  and COLORS.DIST_NEAR
 			or COLORS.DIST_FAR
+		if #riskLabels > 0 and dangerPct == 0 then dangerColor = COLORS.DIST_NEAR end
 
 		make("TextLabel", {
-			Text = dangerText,
+			Text = #riskLabels > 0 and table.concat(riskLabels, "  ·  ") or dangerText,
 			TextSize = 10,
 			Font = FONT_HEADER,
 			TextColor3 = dangerColor,
@@ -791,32 +850,93 @@ function DockManagerUI:ShowCargoUI(opts)
 
 		-- Contraband warning
 		if job.contraband then
-			local cbBadge = make("Frame", {
-				Size = UDim2.new(1, 0, 0, 16),
+			local contrabandSeverity = typeof(job.risks) == "table" and job.risks.Contraband or nil
+			local contrabandClass = string.upper(job.contrabandClass or "Restricted")
+			local hasSignature = typeof(contrabandSeverity) == "number"
+			local offenseBadge = make("Frame", {
+				Size = UDim2.new(hasSignature and 0.48 or 1, 0, 0, 16),
 				Position = UDim2.new(0, 0, 0, 78),
 				BackgroundColor3 = COLORS.ERROR,
 				BackgroundTransparency = 0.75,
 				BorderSizePixel = 0,
 				ZIndex = 6,
 			}, rightBlock)
-			makeCorner(cbBadge, 3)
+			makeCorner(offenseBadge, 3)
 			make("UIStroke", {
 				Color = COLORS.ERROR,
 				Thickness = 1,
 				ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
-			}, cbBadge)
+			}, offenseBadge)
 			make("TextLabel", {
-				Text = "⚠ CONTRABAND",
-				TextSize = 9,
+				Text = "⚠ " .. contrabandClass,
+				TextSize = 8,
 				Font = FONT_HEADER,
 				TextColor3 = COLORS.ERROR,
 				BackgroundTransparency = 1,
 				Size = UDim2.new(1, 0, 1, 0),
 				TextXAlignment = Enum.TextXAlignment.Center,
 				ZIndex = 7,
-			}, cbBadge)
+			}, offenseBadge)
+			if hasSignature then
+				local signatureBadge = make("Frame", {
+					Size = UDim2.new(0.48, 0, 0, 16),
+					Position = UDim2.new(0.52, 0, 0, 78),
+					BackgroundColor3 = COLORS.ERROR,
+					BackgroundTransparency = 0.75,
+					BorderSizePixel = 0,
+					ZIndex = 6,
+				}, rightBlock)
+				makeCorner(signatureBadge, 3)
+				make("UIStroke", {
+					Color = COLORS.ERROR,
+					Thickness = 1,
+					ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+				}, signatureBadge)
+				make("TextLabel", {
+					Text = string.format("SCAN RISK %d%%", math.round(contrabandSeverity * 100)),
+					TextSize = 8,
+					Font = FONT_HEADER,
+					TextColor3 = COLORS.ERROR,
+					BackgroundTransparency = 1,
+					Size = UDim2.new(1, 0, 1, 0),
+					TextXAlignment = Enum.TextXAlignment.Center,
+					ZIndex = 7,
+				}, signatureBadge)
+			end
 		end
 	end
+
+	local function applyDisplayOrder()
+		sortDisplayJobs()
+		for displayIndex, job in ipairs(displayJobs) do
+			local frame = jobFrames[job.id]
+			if frame then frame.LayoutOrder = displayIndex end
+		end
+		scroll.CanvasPosition = Vector2.zero
+	end
+
+	sortButton.Activated:Connect(function()
+		local previousDirection = distanceSort
+		distanceSort = distanceSort == "Ascending" and "Descending" or "Ascending"
+		updateSortButton()
+		applyDisplayOrder()
+
+		if opts.onDistanceSortChanged then
+			sortButton.Active = false
+			local saved, savedDirection = opts.onDistanceSortChanged(distanceSort)
+			sortButton.Active = true
+			if not saved then
+				distanceSort = previousDirection
+				updateSortButton()
+				applyDisplayOrder()
+				DockManagerUI:ShowNotification("✗ Could not save cargo sorting preference.", false)
+			elseif savedDirection == "Ascending" or savedDirection == "Descending" then
+				distanceSort = savedDirection
+				updateSortButton()
+				applyDisplayOrder()
+			end
+		end
+	end)
 
 	if #opts.jobs == 0 then
 		make("TextLabel", {

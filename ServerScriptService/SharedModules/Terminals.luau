@@ -1,5 +1,31 @@
 local TerminalConfigurations = {}
 
+local function laserDoorTerminal(targetPath)
+	local doorAction = {
+		action = "ToggleLaserDoor",
+		targetPath = targetPath,
+		duration = 5,
+		messages = {"Successfully Disabled Door"},
+	}
+	return {
+		terminalType = "DoorControl",
+		difficulty = "Average",
+		hackTime = nil,
+		useAction = "ToggleLaserDoor",
+		useConfig = doorAction,
+		requiresAuthorization = true,
+		onSuccess = doorAction,
+		onFailure = {
+			lockouts = {
+				Catastrophic = {duration = 120, message = "CRITICAL FAILURE!", effects = {"Kill"}},
+				Severe = {duration = 60, message = "Severe failure! Lockout: 60s", effects = {"AlertSecurity", "ElectricShock"}},
+				Average = {duration = 30, message = "Failed! Lockout: 30s", effects = {"AlertSecurity"}},
+				Marginal = {duration = 15, message = "Failed! Lockout: 15s", effects = {}},
+			},
+		},
+	}
+end
+
 -- Define terminal types and their behaviors
 TerminalConfigurations.Terminals = {
 	
@@ -22,26 +48,9 @@ TerminalConfigurations.Terminals = {
 		}
 	},
 	
-	["LaserDoor1Terminal"] = {
-		terminalType = "DoorControl",
-		difficulty = "Average",
-		hackTime = nil, -- uses default based on player stats
-		onSuccess = {
-			action = "ToggleLaserDoor",
-			targetPath = "workspace.Areas.StarhopStation.TEST.LaserDoor1",
-			duration = 5, -- door stays open for 5 seconds
-			messages = {"Successfully Disabled Door"}
-		},
-		onFailure = {
-			lockouts = {
-				Catastrophic = {duration = 120, message = "CRITICAL FAILURE!", effects = {"Kill"}},
-				Severe = {duration = 60, message = "Severe failure! Lockout: 60s", effects = {"AlertSecurity", "ElectricShock"}},
-				Average = {duration = 30, message = "Failed! Lockout: 30s", effects = {"AlertSecurity"}},
-				Marginal = {duration = 15, message = "Failed! Lockout: 15s", effects = {}}
-			}
-		}
-	},
-	
+	["LaserDoor1Terminal"] = laserDoorTerminal("workspace.Areas.StarhopStation.TEST.LaserDoor1"),
+	["LaserDoor2Terminal"] = laserDoorTerminal("workspace.Areas.StarhopStation.TEST.LaserDoor2"),
+
 	["SlidingDoor1Terminal"] = {
 		terminalType = "DoorControl",
 		difficulty = "Hard",
@@ -51,36 +60,6 @@ TerminalConfigurations.Terminals = {
 			targetPath = "workspace.Areas.StarhopStation.TEST.SlidingDoor", --"workspace.LaserDoor1",
 			duration = 5, -- door stays open for 5 seconds
 			messages = {"Successfully Disabled Door"}
-		},
-		onFailure = {
-			lockouts = {
-				Catastrophic = {duration = 120, message = "CRITICAL FAILURE!", effects = {"Kill"}},
-				Severe = {duration = 60, message = "Severe failure! Lockout: 60s", effects = {"AlertSecurity", "ElectricShock"}},
-				Average = {duration = 30, message = "Failed! Lockout: 30s", effects = {"AlertSecurity"}},
-				Marginal = {duration = 15, message = "Failed! Lockout: 15s", effects = {}}
-			}
-		}
-	},
-	
-	["TeleporterTESTTerminal"] = {
-		terminalType = "TeleporterControl",
-		difficulty = "Hard",
-		useAction = "OpenTeleporterControls",
-		hackTime = nil, -- uses default based on player stats
-		locations = {
-			{ id = "Commissary", name = "Commissary", description = "Food level" },
-			{ id = "Hangar", name = "Hangar Bay", description = "Docking level" }
-		},
-		hackedLocations = {
-			{ id = "Commissary", name = "Commissary", description = "Food level" },
-			{ id = "Hangar", name = "Hangar Bay", description = "Docking level" },
-			{ id = "HighSecurityLevelB", name = "High Security Level B", description = "Ring Level High Security Hallway" }
-		},
-		onSuccess = {
-			action = "OpenHackedTeleporterControls",
-			targetPath = "workspace.Areas.StarhopStation.TEST.Teleporter",
-			duration = 5, -- door stays open for 5 seconds
-			messages = {"Successfully Hacked Terminal"}
 		},
 		onFailure = {
 			lockouts = {

@@ -94,6 +94,17 @@ end
 
 function ZoneService.Zone:OnItemEntered(callback)
 	table.insert(self.OnItemEnteredCallbacks, callback)
+	local connected = true
+	return {
+		Disconnect = function()
+			if not connected then return end
+			connected = false
+			local index = table.find(self.OnItemEnteredCallbacks, callback)
+			if index then
+				table.remove(self.OnItemEnteredCallbacks, index)
+			end
+		end,
+	}
 end
 
 function ZoneService.Zone:OnItemExited(callback)
