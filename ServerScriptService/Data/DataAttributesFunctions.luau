@@ -255,7 +255,7 @@ function functions.SetBrains(player,brains)
 	local profile = Data[player]
 	if (profile == nil) then return nil end
 
-	profile.Data.Attributes.Brains = brains
+	profile.Data.Attributes.Brains = math.clamp(math.floor(tonumber(brains) or 0), 0, 5)
 
 	functions.Update(player)
 end

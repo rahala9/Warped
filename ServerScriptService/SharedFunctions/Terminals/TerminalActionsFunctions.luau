@@ -10,6 +10,10 @@ local TerminalActions = {}
 
 -- Helper function to get object from path
 local function getObjectFromPath(path)
+	if typeof(path) ~= "string" or path == "" then
+		return nil
+	end
+
 	local parts = string.split(path, ".")
 	local current
 
@@ -44,10 +48,33 @@ local function getObjectFromPath(path)
 	return current
 end
 
-function TerminalActions.ToggleSlidingDoor(config, player)
-	local slidingDoor = getObjectFromPath(config.targetPath)
+local function getTerminalTarget(prompt)
+	local current = prompt and prompt.Parent
+	while current and current ~= workspace do
+		-- Only inspect the current ancestor. A recursive search from a shared
+		-- parent could accidentally select a neighboring terminal's target.
+		local reference = current:FindFirstChild("TerminalTarget")
+		if reference and reference:IsA("ObjectValue") then
+			local value = reference.Value
+			if value and value.Parent then
+				return value
+			end
+		end
+
+		current = current.Parent
+	end
+
+	return nil
+end
+
+local function resolveTerminalTarget(config, prompt)
+	return getTerminalTarget(prompt) or getObjectFromPath(config.targetPath)
+end
+
+function TerminalActions.ToggleSlidingDoor(config, player, prompt)
+	local slidingDoor = resolveTerminalTarget(config, prompt)
 	if not slidingDoor then 
-		warn("Could not find sliding door at path:", config.targetPath)
+		warn("Could not find TerminalTarget or sliding door at path:", config.targetPath)
 		return 
 	end
 	
@@ -77,10 +104,12 @@ end
 
 
 -- Action: Toggle Laser Door
-function TerminalActions.ToggleLaserDoor(config, player)
-	local laserDoor = getObjectFromPath(config.targetPath)
+function TerminalActions.ToggleLaserDoor(config, player, prompt)
+	-- Physical terminals can link their controlled instance through a generic
+	-- ObjectValue. Existing configured paths remain supported as a fallback.
+	local laserDoor = resolveTerminalTarget(config, prompt)
 	if not laserDoor then 
-		warn("Could not find laser door at path:", config.targetPath)
+		warn("Could not find TerminalTarget or laser door at path:", config.targetPath)
 		return 
 	end
 

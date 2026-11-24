@@ -85,6 +85,9 @@ end)
 
 print("InventoryHandler started")
 EquipItemEvent.OnServerEvent:Connect(function(player,itemname,unequip)
+	if player:GetAttribute("Resting") == true and not unequip then
+		return
+	end
 	
 	print("TEST DRAGG Server Received EquipItem request: itemname:",itemname)
 	if (unequip) then

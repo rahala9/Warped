@@ -3,14 +3,61 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local DisplayActionMessageEvent = ReplicatedStorage.SharedRemotes.DisplayActionMessage
+local MessagePlayerEvent = ReplicatedStorage.SharedRemotes.MessagePlayer
 
 local ActionFunctions = require(ServerScriptService.SharedFunctions.ActionFunctions)
 local TerminalConfigurations = require(ServerScriptService.SharedModules.Terminals)
 local TerminalActionsFunctions = require(ServerScriptService.SharedFunctions.Terminals.TerminalActionsFunctions)
 local TerminalEffectsFunctions = require(ServerScriptService.SharedFunctions.Terminals.TerminalEffectsFunctions)
 local InventoryFunctions = require(ServerScriptService.InventorySystem.DataInventoryFunctions)
+local AttributesFunctions = require(ServerScriptService.Data.DataAttributesFunctions)
 
 local PlayerLockouts = {}  -- {[player] = {[terminalId] = lockoutUntil}}
+local MINIMUM_HACK_DURATION = 0.75
+local MAXIMUM_HACK_MESSAGES = 4
+local SECONDS_PER_HACK_MESSAGE = 1.5
+
+local function getHackingPresentation(player, duration)
+	local skillLevel = math.clamp(
+		math.floor(tonumber(AttributesFunctions.GetSkill(player, "Hacking")) or 0),
+		0,
+		5
+	)
+	local source = TerminalConfigurations.HackingMessages[skillLevel]
+	if not source or #source == 0 then
+		return {"Hacking Terminal..."}, duration
+	end
+
+	local shuffled = table.clone(source)
+	for index = #shuffled, 2, -1 do
+		local swapIndex = math.random(1, index)
+		shuffled[index], shuffled[swapIndex] = shuffled[swapIndex], shuffled[index]
+	end
+
+	local messageCount = math.clamp(
+		math.floor(duration / SECONDS_PER_HACK_MESSAGE) + 1,
+		1,
+		math.min(MAXIMUM_HACK_MESSAGES, #shuffled)
+	)
+	local messages = table.create(messageCount)
+	for index = 1, messageCount do
+		messages[index] = shuffled[index]
+	end
+
+	return messages, duration / messageCount
+end
+
+local function getInheritedAttribute(instance, attributeName)
+	local current = instance
+	while current and current ~= workspace do
+		local value = current:GetAttribute(attributeName)
+		if value ~= nil then
+			return value
+		end
+		current = current.Parent
+	end
+	return nil
+end
 
 local function getTerminalId(prompt)
 	local current = prompt
@@ -74,11 +121,9 @@ function HandleUseTerminal(player, prompt)
 	end
 	
 	if config.requiresAuthorization then
-		local requiredItem = prompt:GetAttribute("RequiredItem")
-			or prompt.Parent:GetAttribute("RequiredItem")
+		local requiredItem = getInheritedAttribute(prompt, "RequiredItem")
 			or config.requiredItem
-		local requiredAmount = prompt:GetAttribute("RequiredItemAmount")
-			or prompt.Parent:GetAttribute("RequiredItemAmount")
+		local requiredAmount = getInheritedAttribute(prompt, "RequiredItemAmount")
 			or config.requiredItemAmount
 			or 1
 
@@ -95,17 +140,18 @@ function HandleUseTerminal(player, prompt)
 		if not hasItem then
 			local itemDef = InventoryFunctions.GetItemDef(requiredItem)
 			local displayName = itemDef and itemDef.DisplayName or requiredItem
-			DisplayActionMessageEvent:FireClient(player, {
-				"ACCESS DENIED",
-				string.format("Requires %d %s", requiredAmount, displayName),
-			}, 3)
+			MessagePlayerEvent:FireClient(
+				player,
+				string.format("Access denied. Requires %d %s.", requiredAmount, displayName),
+				requiredItem
+			)
 			return
 		end
 	end
 
 	local useActionHandler = TerminalActionsFunctions[config.useAction]
 	if useActionHandler then
-		useActionHandler(config.useConfig or config, player)
+		useActionHandler(config.useConfig or config, player, prompt)
 	else
 		DisplayActionMessageEvent:FireClient(player, {
 			"TERMINAL UNAVAILABLE",
@@ -140,9 +186,13 @@ function HandleHackTerminal(player, prompt)
 	end
 
 	local difficulty = ActionFunctions.Difficulty[config.difficulty] or ActionFunctions.Difficulty.Average
-	local playerTimeToHack = config.hackTime or ActionFunctions.GetTimeForAction(player, ActionFunctions.ActionTypes.Hacking, difficulty)
+	local playerTimeToHack = math.max(
+		config.hackTime or ActionFunctions.GetTimeForAction(player, ActionFunctions.ActionTypes.Hacking, difficulty),
+		MINIMUM_HACK_DURATION
+	)
+	local hackingMessages, hackingMessageDelay = getHackingPresentation(player, playerTimeToHack)
 
-	DisplayActionMessageEvent:FireClient(player, {"Hacking Terminal...", "Accessing System...", "Processing..."}, 2, playerTimeToHack)
+	DisplayActionMessageEvent:FireClient(player, hackingMessages, hackingMessageDelay, playerTimeToHack)
 
 	task.delay(playerTimeToHack, function()
 		if not isPlayerNearTerminal(player, prompt, 10) then
@@ -158,7 +208,7 @@ function HandleHackTerminal(player, prompt)
 
 			local actionHandler = TerminalActionsFunctions[config.onSuccess.action]
 			if actionHandler then
-				actionHandler(config.onSuccess, player)
+				actionHandler(config.onSuccess, player, prompt)
 			else
 				warn("No action handler found for:", config.onSuccess.action)
 			end

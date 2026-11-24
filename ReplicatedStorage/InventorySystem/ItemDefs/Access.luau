@@ -22,6 +22,7 @@ local SubTypes = {
 		["DNA"]="DNA",
 		["Ticket"]="Ticket",
 		["Pass"]="Pass",
+		["Code"]="Code",
 		["None"]="",
 	},
 }
@@ -95,6 +96,46 @@ local module = {
 		Rarity = Rarity.Epic
 	};
 	
+	["StarhopClearanceCode"] = {
+		Name = "StarhopClearanceCode",
+		DisplayName = "Starhop Clearance Code",
+		Level = 1,
+		Amount = 1,
+		Desc = "A rotating code used for access to many Starhop terminals",
+		Type = ItemTypes.Access,
+		SubType = SubTypes.Access.Code,
+		Traits = {["Solid"]=true},
+		NeedToContain="Solid",
+		Value = 0,
+		ImageOffsetX = 11*64,
+		ImageOffsetY = 0*64,
+		Trade = false,
+		Limit = 1,
+		LootType = LootTypes.Quest,
+		Rarity = Rarity.Epic
+	};
+
+
+
+	["PortalTicket"] = {
+		Name = "PortalTicket",
+		DisplayName = "Portal Ticket",
+		Level = 1,
+		Amount = 1,
+		Desc = "A ticket to use the portal",
+		Type = ItemTypes.Access,
+		SubType = SubTypes.Access.Ticket,
+		Traits = {["Solid"]=true},
+		NeedToContain="Solid",
+		Value = 100,
+		ImageOffsetX = 11*64,
+		ImageOffsetY = 0*64,
+		Trade = false,
+		Limit = 1,
+		LootType = LootTypes.Purchase,
+		Rarity = Rarity.Uncommon
+	};
+
 	["WhiteKeycard"] = {
 		Name = "WhiteKeycard",
 		DisplayName = "White Keycard",

@@ -28,6 +28,70 @@ local ZoneDefinitions = require(ReplicatedStorage.SharedModules.ZoneDefinitions)
 local Zones = require(ReplicatedStorage.SharedModules.ZoneLoader)
 local PPC = require(ReplicatedStorage.SharedModules.PressurePlateController)
 
+local DEFAULT_PORTAL_COOLDOWN = 1
+local portalTransitUntil = {}
+
+local function getPortalCooldown(zoneFolder)
+	local configuredCooldown = zoneFolder:GetAttribute("PortalCooldown")
+	if typeof(configuredCooldown) ~= "number" then
+		return DEFAULT_PORTAL_COOLDOWN
+	end
+
+	return math.max(0, configuredCooldown)
+end
+
+local function canUsePortal(player, zoneFolder)
+	local requiredItem = zoneFolder:GetAttribute("RequiredItem")
+	if typeof(requiredItem) ~= "string" or requiredItem == "" then
+		return true
+	end
+
+	local requiredAmount = zoneFolder:GetAttribute("RequiredItemAmount")
+	if typeof(requiredAmount) ~= "number" then
+		requiredAmount = 1
+	end
+	requiredAmount = math.max(1, math.floor(requiredAmount))
+
+	local hasItem, usedItemName, containerId = InventoryFunctions.HasItem(
+		player,
+		requiredItem,
+		requiredAmount,
+		true,
+		true
+	)
+
+	if not hasItem then
+		local itemDefinition = InventoryFunctions.GetItemDef(requiredItem)
+		local displayName = itemDefinition and itemDefinition.DisplayName or requiredItem
+		MessagePlayerEvent:FireClient(
+			player,
+			string.format("Requires %d %s", requiredAmount, displayName),
+			requiredItem
+		)
+		return false
+	end
+
+	local usedItemDefinition = InventoryFunctions.GetItemDef(usedItemName)
+	local isTicket = usedItemDefinition and usedItemDefinition.SubType == "Ticket"
+	local shouldConsume = isTicket or zoneFolder:GetAttribute("ConsumeRequiredItem") == true
+
+	if shouldConsume then
+		if containerId then
+			InventoryFunctions.RemoveItemFromContainer(
+				player,
+				containerId,
+				usedItemName,
+				requiredAmount,
+				true
+			)
+		else
+			InventoryFunctions.RemoveItem(player, usedItemName, requiredAmount)
+		end
+	end
+
+	return true
+end
+
 
 --TODO MOVE INTO TELEPORT MODULE
 function Teleport(player, freeze, destination)
@@ -151,15 +215,36 @@ local function TeleportThroughPortal(player, freeze, entryPortalCF, exitPortalCF
 		humanoid.JumpPower = savedJumpPower
 	end
 end
+
+local function handlePortalEntered(zone, player, entryPortalCF, exitPortalCF)
+	local now = os.clock()
+	if now < (portalTransitUntil[player] or 0) then
+		return
+	end
+
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+	if not humanoid or humanoid.Health <= 0 or not rootPart then
+		return
+	end
+
+	-- Set this before moving the character so entering the destination zone cannot
+	-- immediately send the player back or charge a second ticket.
+	portalTransitUntil[player] = now + getPortalCooldown(zone.Folder)
+
+	if not canUsePortal(player, zone.Folder) then
+		return
+	end
+
+	TeleportThroughPortal(player, true, entryPortalCF, exitPortalCF)
+end
+
 Zones:OnLoaded("PortalA", function(zone)
-
-	local door = zone.Folder.Parent
-
 	zone:OnPlayerEntered(function(player)
-		--Teleport2(player,true, workspace.PortalB.PortalMain.Exit.WorldCFrame,false)
-		TeleportThroughPortal(
+		handlePortalEntered(
+			zone,
 			player,
-			true,
 			workspace.PortalA.PortalMain.Exit.WorldCFrame,
 			workspace.PortalB.PortalMain.Exit.WorldCFrame
 		)
@@ -167,14 +252,10 @@ Zones:OnLoaded("PortalA", function(zone)
 end)
 
 Zones:OnLoaded("PortalB", function(zone)
-
-	local door = zone.Folder.Parent
-
 	zone:OnPlayerEntered(function(player)
-		--Teleport2(player,true, workspace.PortalA.PortalMain.Exit.WorldCFrame,false)
-		TeleportThroughPortal(
+		handlePortalEntered(
+			zone,
 			player,
-			true,
 			workspace.PortalB.PortalMain.Exit.WorldCFrame,
 			workspace.PortalA.PortalMain.Exit.WorldCFrame
 		)

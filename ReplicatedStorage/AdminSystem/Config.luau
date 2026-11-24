@@ -4,4 +4,5 @@ return {
 		[1490918058] = true,
 	},
 	MaxItemGrant = 999,
+	MaxSkillLevel = 5,
 }

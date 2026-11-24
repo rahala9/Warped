@@ -9,6 +9,7 @@ depend on LocalScripts embedded in a Studio-only GUI model.
 - Effects can be searched, applied, and removed.
 - Items can be searched and granted in a selected amount.
 - Ships can be permanently granted to or revoked from a player's profile.
+- Skills can be searched, inspected, and set from 0-5 directly on the selected player's profile.
 
 The client allowlist only hides the UI. `AdminHandler` independently authorizes
 every request using `Config.AdminUserIds`; Studio sessions are allowed for local

@@ -1,14 +1,23 @@
 -- ServerScriptService.Systems.TerminalEffects
+local ServerStorage = game:GetService("ServerStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
+
+local PlayerHitEvent = ServerStorage:WaitForChild("SharedServerEvents"):WaitForChild("PlayerHit")
+local EffectsFunctions = require(ServerScriptService.Data.DataEffectsFunctions)
+
 local TerminalEffects = {}
 
 function TerminalEffects.Kill(player)
-	local character = player.Character
-	if character then
-		local humanoid = character:FindFirstChild("Humanoid")
-		if humanoid then
-			humanoid.Health = 0
-		end
-	end
+	-- Reuse the same status/VFX/audio path as cable hazards, while preserving
+	-- the terminal's existing lethal damage rather than relying on status ticks.
+	EffectsFunctions.AddEffect(player, "ElectricShock", 1, "TerminalCriticalFailure")
+	PlayerHitEvent:Fire(player, 9999999999, nil, "ElectricShock", {
+		Effect = "Electrocuted",
+		Chance = 1,
+		Source = "Terminal critical failure",
+		SourceType = "Terminal",
+		DamageType = "Electric",
+	})
 end
 
 function TerminalEffects.AlertSecurity(terminalPosition)
@@ -18,13 +27,7 @@ function TerminalEffects.AlertSecurity(terminalPosition)
 end
 
 function TerminalEffects.ElectricShock(player)
-	local character = player.Character
-	if character then
-		local humanoid = character:FindFirstChild("Humanoid")
-		if humanoid then
-			humanoid:TakeDamage(25)
-		end
-	end
+	PlayerHitEvent:Fire(player, 25, nil, "Electric")
 end
 
 function TerminalEffects.SpawnGuards(terminalPosition)

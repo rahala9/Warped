@@ -451,6 +451,9 @@ local function HandleSpraypaint(player, tool)
 end
 
 ReplicatedStorage:WaitForChild("SharedRemotes"):WaitForChild("UseTool").OnServerEvent:Connect(function(player,toolActionType)
+	if player:GetAttribute("Resting") == true then
+		return
+	end
 	
 	local heldToolName = StatesFunctions.GetCurrentTool(player)
 		
@@ -499,6 +502,9 @@ ReplicatedStorage:WaitForChild("SharedRemotes"):WaitForChild("UseTool").OnServer
 end)
 
 HoldToolEvent.OnServerEvent:Connect(function(player,itemName,slot,equip)
+	if player:GetAttribute("Resting") == true and itemName ~= nil and itemName ~= "" then
+		return
+	end
 	
 	--SECURITY make sure they have the item before setting it as their current tool
 	if (itemName ~= "" and (InventoryFunctions.GetItemDef(itemName) == nil) and (InventoryFunctions.GetWeapon(player,itemName) ~= nil) and (InventoryFunctions.GetOffHand(player,itemName) ~= nil) and (InventoryFunctions.GetArtifact(player,itemName) ~= nil)) then

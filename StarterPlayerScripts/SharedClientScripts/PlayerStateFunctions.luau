@@ -741,36 +741,17 @@ function playerState.Init(player)
 	--JumpIntoWaterToDive
 	--18319974101
 
-	--Rest Animations (Sitting, Sleeping)
-	local sittingAnimation = Instance.new("Animation")
-	sittingAnimation.AnimationId = "http://www.roblox.com/asset/?id=82670185019554" --137665163986879" --17415741748" --13452747415" --13452731790" --13452698147" --13452678623" --13452624173" --13452569133"  --13452547135" --13452519995" --13452491336" --13434821879" --9881078485" --8951132198"
-	local sittingTrack = humanoid:LoadAnimation(sittingAnimation)
-	sittingTrack.Looped = true
-	sittingTrack.Priority = Enum.AnimationPriority.Action
-
-	local sittingForwardAnimation = Instance.new("Animation")
-	sittingForwardAnimation.AnimationId = "http://www.roblox.com/asset/?id=137665163986879" --17415741748" --13452747415" --13452731790" --13452698147" --13452678623" --13452624173" --13452569133"  --13452547135" --13452519995" --13452491336" --13434821879" --9881078485" --8951132198"
-	local sittingForwardTrack = humanoid:LoadAnimation(sittingForwardAnimation)
-
-	local sittingAtTableAnimation = Instance.new("Animation")
-	sittingAtTableAnimation.AnimationId = "http://www.roblox.com/asset/?id=12389770058" --13452731790" --13452698147" --13452678623" --13452624173" --13452569133"  --13452547135" --13452519995" --13452491336" --13434821879" --9881078485" --8951132198"
-	local sittingAtTableTrack = humanoid:LoadAnimation(sittingAtTableAnimation)
-
-	local sleepingAnimation = Instance.new("Animation")
-	sleepingAnimation.AnimationId = "http://www.roblox.com/asset/?id=8949463565"
-	local sleepingTrack = humanoid:LoadAnimation(sleepingAnimation)
-
-	local sittingRelaxedAnimation = Instance.new("Animation")
-	sittingRelaxedAnimation.AnimationId = "http://www.roblox.com/asset/?id=99208674530252" --12380734981" --8951132198"
-	local sittingRelaxedTrack = humanoid:LoadAnimation(sittingRelaxedAnimation)
-
+	-- Flight previously reused the legacy generic sitting track. Keep the same
+	-- asset, but give ship seating an independent track from RestSystem.
+	local flightSeatAnimation = Instance.new("Animation")
+	flightSeatAnimation.AnimationId = "http://www.roblox.com/asset/?id=82670185019554"
+	local flightSeatTrack = humanoid:LoadAnimation(flightSeatAnimation)
+	flightSeatTrack.Looped = true
+	flightSeatTrack.Priority = Enum.AnimationPriority.Action
 
 	local drivingIdleAnimation = Instance.new("Animation")
 	drivingIdleAnimation.AnimationId = "http://www.roblox.com/asset/?id=18278139043" --18290135730
 	local drivingIdleTrack = humanoid:LoadAnimation(drivingIdleAnimation)
-
-	--End Rest Animations
-
 
 	local knockedDownAnimation = Instance.new("Animation")
 	knockedDownAnimation.AnimationId = "http://www.roblox.com/asset/?id=13521789822" --13520698099"
@@ -971,7 +952,7 @@ function playerState.Init(player)
 
 
 		--Flying
-		["Flying"]={Name="Flying",Animation=sittingTrack,Playing=false,AnimationSpeed=1,AnimationFadeTime=.1,AnimationWeight=1},
+		["Flying"]={Name="Flying",Animation=flightSeatTrack,Playing=false,AnimationSpeed=1,AnimationFadeTime=.1,AnimationWeight=1},
 
 		--Swimming
 		--["JumpIntoWater"]={Name="JumpIntoWater",Animation=jumpIntoWaterTrack,Playing=false,AnimationSpeed=2,AnimationFadeTime=0,AnimationWeight=1},
@@ -988,12 +969,6 @@ function playerState.Init(player)
 		--["StopDiving"]={Name="StopDiving",Animation=jumpingRollTrack,Playing=false,AnimationSpeed=2,AnimationFadeTime=.1,AnimationWeight=1},
 
 
-		--Sitting,Laying down etc
-		["Sitting"]={Name="Sitting",Animation=sittingTrack,Playing=false,AnimationSpeed=1,AnimationFadeTime=.1,AnimationWeight=1},
-		["SittingForward"]={Name="SittingForward",Animation=sittingForwardTrack,Playing=false,AnimationSpeed=1,AnimationFadeTime=.1,AnimationWeight=1},
-		["SittingAtTable"]={Name="SittingAtTable",Animation=sittingAtTableTrack,Playing=false,AnimationSpeed=1,AnimationFadeTime=.1,AnimationWeight=1},
-		["Sleeping"]={Name="Sleeping",Animation=sleepingTrack,Playing=false,AnimationSpeed=1,AnimationFadeTime=.1,AnimationWeight=1},
-		["SittingRelaxed"]={Name="SittingRelaxed",Animation=sittingRelaxedTrack,Playing=false,AnimationSpeed=1,AnimationFadeTime=.1,AnimationWeight=1},
 		["KnockedDown"]={Name="KnockedDown",Animation=knockedDownTrack,Playing=false,AnimationSpeed=1,AnimationFadeTime=.1,AnimationWeight=1},
 		["UsingTool"]={Name="UsingTool",Animation=idleTrack,Playing=false,AnimationSpeed=1,AnimationFadeTime=.1,AnimationWeight=1},
 

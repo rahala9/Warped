@@ -83,6 +83,11 @@ local RARITY_COLOR = {
 	Legendary = COLORS.RARITY_LEGENDARY,
 }
 
+local MODAL_SIDE_MARGIN = 16
+local MODAL_TOP_SAFE_AREA = 12
+local MODAL_BOTTOM_SAFE_AREA = 112
+local MODAL_CENTER_OFFSET = (MODAL_TOP_SAFE_AREA - MODAL_BOTTOM_SAFE_AREA) / 2
+
 -- ── Helpers ───────────────────────────────────────────────────────────────────
 local function make(className, props, parent)
 	local inst = Instance.new(className)
@@ -223,13 +228,21 @@ end
 local function makePanel(sg, width, height, title, subtitle)
 	local panel = make("Frame", {
 		Name = "Panel",
-		Size = UDim2.new(0, width, 0, height),
+		Size = UDim2.new(
+			1,
+			-MODAL_SIDE_MARGIN * 2,
+			1,
+			-(MODAL_TOP_SAFE_AREA + MODAL_BOTTOM_SAFE_AREA)
+		),
 		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.new(0.5, 0, 0.5, 0),
+		Position = UDim2.new(0.5, 0, 0.5, MODAL_CENTER_OFFSET),
 		BackgroundColor3 = COLORS.BG,
 		BorderSizePixel = 0,
 		ZIndex = 2,
 	}, sg)
+	make("UISizeConstraint", {
+		MaxSize = Vector2.new(width, height),
+	}, panel)
 	makeCorner(panel, 10)
 	makeStroke(panel, COLORS.BORDER, 1.5)
 

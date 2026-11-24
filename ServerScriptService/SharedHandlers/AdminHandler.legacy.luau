@@ -7,11 +7,20 @@ local adminEvent = ReplicatedStorage:WaitForChild("SharedRemotes"):WaitForChild(
 local Config = require(ReplicatedStorage:WaitForChild("AdminSystem"):WaitForChild("Config"))
 local Items = require(ReplicatedStorage:WaitForChild("InventorySystem"):WaitForChild("Items"))
 local Effects = require(ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("Effects"))
+local SkillCheckFunctions = require(ReplicatedStorage:WaitForChild("SharedFunctions"):WaitForChild("SkillCheckFunctions"))
 local InventoryFunctions = require(ServerScriptService.InventorySystem.DataInventoryFunctions)
 local EffectsFunctions = require(ServerScriptService.Data.DataEffectsFunctions)
+local AttributesFunctions = require(ServerScriptService.Data.DataAttributesFunctions)
 local ProgressFunctions = require(ServerScriptService.Data.DataProgressFunctions)
 local ShipFunctions = require(ServerScriptService.Data.DataShipFunctions)
 local ShipsFolder = ReplicatedStorage:WaitForChild("SharedClientAssets"):WaitForChild("Ships")
+
+local validSkills = {}
+for _, definition in pairs(SkillCheckFunctions.Skills) do
+	if typeof(definition) == "table" and typeof(definition.name) == "string" then
+		validSkills[definition.name] = true
+	end
+end
 
 local function isAdmin(player)
 	return RunService:IsStudio() or Config.AdminUserIds[player.UserId] == true
@@ -21,6 +30,13 @@ local function respond(player, ok, message)
 	adminEvent:FireClient(player, "AdminResult", {
 		Ok = ok,
 		Message = message,
+	})
+end
+
+local function sendSkills(requestingPlayer, target)
+	adminEvent:FireClient(requestingPlayer, "AdminSkills", {
+		TargetUserId = target.UserId,
+		Skills = AttributesFunctions.GetAllSkills(target),
 	})
 end
 
@@ -48,7 +64,37 @@ adminEvent.OnServerEvent:Connect(function(player, action, arg, arg2)
 		return
 	end
 
-	if action == "AddEffect" or action == "RemoveEffect" then
+	if action == "GetSkills" then
+		local payload = typeof(arg) == "table" and arg or {}
+		local target = resolveTarget(player, payload)
+		if not target then
+			respond(player, false, "Target player is no longer available.")
+		else
+			sendSkills(player, target)
+		end
+	elseif action == "SetSkill" then
+		local payload = typeof(arg) == "table" and arg or {}
+		local target = resolveTarget(player, payload)
+		local skillName = payload.Name
+		local requestedLevel = tonumber(payload.Amount)
+		if not target then
+			respond(player, false, "Target player is no longer available.")
+		elseif typeof(skillName) ~= "string" or not validSkills[skillName] then
+			respond(player, false, "Unknown skill: " .. tostring(skillName))
+		elseif not requestedLevel or requestedLevel ~= requestedLevel then
+			respond(player, false, "Skill level must be a number.")
+		else
+			local level = math.clamp(math.floor(requestedLevel), 0, Config.MaxSkillLevel)
+			AttributesFunctions.SetSkill(target, skillName, level)
+			local savedLevel = AttributesFunctions.GetSkill(target, skillName)
+			if savedLevel == nil then
+				respond(player, false, "The target player's profile is not ready.")
+			else
+				sendSkills(player, target)
+				respond(player, true, string.format("Set %s to %d for %s.", skillName, savedLevel, target.Name))
+			end
+		end
+	elseif action == "AddEffect" or action == "RemoveEffect" then
 		local payload = typeof(arg) == "table" and arg or {Name = arg}
 		local target = resolveTarget(player, payload)
 		local effectName = payload.Name
