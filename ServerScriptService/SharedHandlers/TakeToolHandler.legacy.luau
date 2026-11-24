@@ -10,6 +10,9 @@ local QuestFunctions = require(ServerScriptService.Data.DataQuestFunctions)
 local StatesFunctions = require(ServerScriptService.Data.DataStatesFunctions)
 
 local function onPromptTriggered(promptObject, player)
+	if player:GetAttribute("Resting") == true then
+		return
+	end
 
 	if (promptObject.Name == "TakeTool") then
 		if (promptObject:GetAttribute("RequiredQuestComplete")) then

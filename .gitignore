@@ -12,6 +12,10 @@ Desktop.ini
 __pycache__/
 *.py[cod]
 
+# Locally generated Blender test/export artifacts
+GeneratedAssets/
+*.blend1
+
 # Logs, temporary files, and local environment files
 *.log
 *.tmp

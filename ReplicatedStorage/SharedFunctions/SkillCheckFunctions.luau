@@ -40,18 +40,18 @@ SkillCheckSystem.Difficulty = {
 	NearImpossible = -60
 }
 
--- Degree of success/failure thresholds
-SkillCheckSystem.SuccessDegree = {
-	Marginal = 0,    -- 0-9% margin
-	Average = 10,    -- 10-29% margin
-	Good = 30,       -- 30-49% margin
-	Exceptional = 50 -- 50%+ margin
-}
-
--- Critical roll ranges (out of 100)
-SkillCheckSystem.CriticalRange = {
-	CriticalFailureMax = 5,   -- 1-5 is critical failure
-	CriticalSuccessMin = 96   -- 96-100 is critical success
+-- Skill progression is intentionally nonlinear. Becoming trained is a large
+-- improvement over being untrained, levels 1-4 grow steadily, and level 5 is
+-- an exceptional jump beyond ordinary expertise.
+SkillCheckSystem.MaxSkillLevel = 5
+SkillCheckSystem.MaxAttributeLevel = 5
+SkillCheckSystem.SkillTiers = {
+	[0] = {SuccessBonus = 0, CriticalFailureRisk = 30, Name = "Untrained"},
+	[1] = {SuccessBonus = 22, CriticalFailureRisk = 20, Name = "Novice"},
+	[2] = {SuccessBonus = 32, CriticalFailureRisk = 17, Name = "Trained"},
+	[3] = {SuccessBonus = 42, CriticalFailureRisk = 14, Name = "Skilled"},
+	[4] = {SuccessBonus = 52, CriticalFailureRisk = 11, Name = "Expert"},
+	[5] = {SuccessBonus = 78, CriticalFailureRisk = 3, Name = "Legendary"},
 }
 
 -- Descriptor mappings for vague chance display
@@ -67,14 +67,11 @@ SkillCheckSystem.ChanceDescriptor = {
 
 -- ==================== CONFIGURATION ====================
 
--- Base success chance before any modifiers
-local BASE_CHANCE = 30
-
--- Skill level multiplier (each skill level adds this much %)
-local SKILL_MULTIPLIER = 15
-
--- Attribute modifier multiplier (each +1 attribute modifier adds this much %)
-local ATTRIBUTE_MULTIPLIER = 3
+local ATTRIBUTE_MULTIPLIER = 6
+local MINIMUM_SUCCESS_CHANCE = 1
+local MAXIMUM_SUCCESS_CHANCE = 95
+local MINIMUM_CRITICAL_FAILURE_CHANCE = 2
+local MAXIMUM_CRITICAL_FAILURE_CHANCE = 30
 
 -- ==================== UTILITY FUNCTIONS ====================
 
@@ -88,6 +85,21 @@ local function Clamp(value, min, max)
 	return math.max(min, math.min(max, value))
 end
 
+local function GetTier(options)
+	local level = Clamp(math.floor(tonumber(options.skillLevel) or 0), 0, SkillCheckSystem.MaxSkillLevel)
+	return SkillCheckSystem.SkillTiers[level], level
+end
+
+local function GetAttributeLevel(options)
+	return Clamp(tonumber(options.attributeModifier) or 0, 0, SkillCheckSystem.MaxAttributeLevel)
+end
+
+local function GetDifficultyDanger(difficulty)
+	-- Existing difficulty modifiers are in ten-point steps. Harder checks add
+	-- danger while easier checks shave a small amount off the catastrophic risk.
+	return Clamp(math.round(-(tonumber(difficulty) or 0) / 10), -2, 6)
+end
+
 -- Get a descriptor for a chance percentage
 local function GetChanceDescriptor(chance)
 	for _, descriptor in ipairs(SkillCheckSystem.ChanceDescriptor) do
@@ -98,33 +110,6 @@ local function GetChanceDescriptor(chance)
 	return "Unknown", Color3.fromRGB(128, 128, 128)
 end
 
--- Determine degree of success based on margin
-local function GetSuccessDegree(margin)
-	if margin >= SkillCheckSystem.SuccessDegree.Exceptional then
-		return "Exceptional"
-	elseif margin >= SkillCheckSystem.SuccessDegree.Good then
-		return "Good"
-	elseif margin >= SkillCheckSystem.SuccessDegree.Average then
-		return "Average"
-	else
-		return "Marginal"
-	end
-end
-
--- Determine degree of failure based on margin
-local function GetFailureDegree(margin)
-	local absMargin = math.abs(margin)
-	if absMargin >= SkillCheckSystem.SuccessDegree.Exceptional then
-		return "Catastrophic"
-	elseif absMargin >= SkillCheckSystem.SuccessDegree.Good then
-		return "Severe"
-	elseif absMargin >= SkillCheckSystem.SuccessDegree.Average then
-		return "Average"
-	else
-		return "Marginal"
-	end
-end
-
 -- ==================== CORE FUNCTIONS ====================
 
 --[[
@@ -132,8 +117,8 @@ end
 	
 	Parameters:
 		options (table):
-			- skillLevel (number): Character's skill level (0 = untrained, 1-5+ = trained)
-			- attributeModifier (number): Attribute modifier (-2 to +3 typically)
+			- skillLevel (number): Character's skill level (0-5)
+			- attributeModifier (number): Relevant permanent attribute level (0-5)
 			- difficulty (number): Difficulty modifier (use Difficulty constants)
 			- hiddenModifier (number, optional): Hidden modifier not shown to player
 			- equipmentBonus (number, optional): Bonus from tools/equipment
@@ -142,25 +127,13 @@ end
 		number: The calculated success chance (0-100, clamped)
 ]]
 function SkillCheckSystem.CalculateChance(options)
-	local skillLevel = options.skillLevel or 0
-	local attributeModifier = options.attributeModifier or 0
+	local tier = GetTier(options)
+	local attributeModifier = GetAttributeLevel(options)
 	local difficulty = options.difficulty or 0
 	local hiddenModifier = options.hiddenModifier or 0
 	local equipmentBonus = options.equipmentBonus or 0
-	
-	print("TEST CALC CHANCE OPTIONS:",options)
 
-	-- Calculate base chance
-	local chance = BASE_CHANCE
-
-	-- Add skill contribution
-	-- Untrained (skill 0) gets a penalty
-	if skillLevel == 0 then
-		chance = chance - 30  -- Untrained penalty
-		equipmentBonus = 0 --Untrained cannot use the equipment
-	else
-		chance = chance + (skillLevel * SKILL_MULTIPLIER)
-	end
+	local chance = tier.SuccessBonus
 
 	-- Add attribute modifier
 	chance = chance + (attributeModifier * ATTRIBUTE_MULTIPLIER)
@@ -174,14 +147,20 @@ function SkillCheckSystem.CalculateChance(options)
 	-- Add hidden modifier (not shown to player)
 	chance = chance + hiddenModifier
 
-	print("TEST CALC CHANCE TOTAL CHANCE:",chance)
+	return math.floor(Clamp(chance, MINIMUM_SUCCESS_CHANCE, MAXIMUM_SUCCESS_CHANCE))
+end
 
-	-- Clamp between 1 and 99 (never impossible, never guaranteed)
-	chance = Clamp(chance, 1, 99)
-
-	print("TEST CALC CHANCE CLAMPED CHANCE:",chance)
-	
-	return chance
+function SkillCheckSystem.CalculateCriticalFailureChance(options)
+	local tier = GetTier(options)
+	local attributeLevel = GetAttributeLevel(options)
+	local risk = tier.CriticalFailureRisk
+		- attributeLevel
+		+ GetDifficultyDanger(options.difficulty)
+	return math.floor(Clamp(
+		risk,
+		MINIMUM_CRITICAL_FAILURE_CHANCE,
+		MAXIMUM_CRITICAL_FAILURE_CHANCE
+	))
 end
 
 --[[
@@ -210,46 +189,61 @@ end
 		}
 ]]
 function SkillCheckSystem.MakeCheck(options)
-	-- Calculate success chance
 	local chance = SkillCheckSystem.CalculateChance(options)
 
-	-- Get descriptor
-	local descriptor, descriptorColor = GetChanceDescriptor(chance)
-
-	-- Roll the dice!
-	local roll = RandomRange(1, 100)
-
-	-- Check for critical success/failure
 	local critEnabled = options.critEnabled
 	if critEnabled == nil then
 		critEnabled = true
 	end
 
-	local isCritical = false
-	local success = roll <= chance
+	local criticalFailureChance = critEnabled
+		and SkillCheckSystem.CalculateCriticalFailureChance(options)
+		or 0
+	-- Reserve at least one roll for an ordinary failure after the two explicit
+	-- outcome bands.
+	chance = math.min(chance, 99 - criticalFailureChance)
+	local descriptor, descriptorColor = GetChanceDescriptor(chance)
 
-	if critEnabled then
-		if roll <= SkillCheckSystem.CriticalRange.CriticalFailureMax then
-			-- Critical failure (always fails)
-			success = false
-			isCritical = true
-		elseif roll >= SkillCheckSystem.CriticalRange.CriticalSuccessMin then
-			-- Critical success (always succeeds)
-			success = true
-			isCritical = true
+	local roll = RandomRange(1, 100)
+	local successBandEnd = criticalFailureChance + chance
+	local isCritical = false
+	local success = false
+	local degree
+
+	if critEnabled and roll <= criticalFailureChance then
+		degree = "Catastrophic"
+		isCritical = true
+	elseif roll <= successBandEnd then
+		success = true
+		local criticalSuccessWidth = critEnabled and math.min(5, chance) or 0
+		isCritical = criticalSuccessWidth > 0
+			and roll <= criticalFailureChance + criticalSuccessWidth
+
+		local positionInSuccessBand = (roll - criticalFailureChance) / chance
+		if isCritical or positionInSuccessBand <= 0.1 then
+			degree = "Exceptional"
+		elseif positionInSuccessBand <= 0.4 then
+			degree = "Good"
+		elseif positionInSuccessBand <= 0.75 then
+			degree = "Average"
+		else
+			degree = "Marginal"
+		end
+	else
+		-- Ordinary failures can never become catastrophic. Severity is based on
+		-- how deep the roll landed in the remaining failure band.
+		local failureBandSize = 100 - successBandEnd
+		local positionInFailureBand = (roll - successBandEnd) / failureBandSize
+		if positionInFailureBand <= 0.34 then
+			degree = "Marginal"
+		elseif positionInFailureBand <= 0.67 then
+			degree = "Average"
+		else
+			degree = "Severe"
 		end
 	end
 
-	-- Calculate margin (how much we beat/missed the chance by)
-	local margin = chance - roll
-
-	-- Determine degree
-	local degree
-	if success then
-		degree = GetSuccessDegree(margin)
-	else
-		degree = GetFailureDegree(margin)
-	end
+	local margin = successBandEnd - roll
 
 	-- Return comprehensive result
 	return {
@@ -259,6 +253,7 @@ function SkillCheckSystem.MakeCheck(options)
 		margin = margin,
 		degree = degree,
 		critical = isCritical,
+		criticalFailureChance = criticalFailureChance,
 		descriptor = descriptor,
 		descriptorColor = descriptorColor
 	}

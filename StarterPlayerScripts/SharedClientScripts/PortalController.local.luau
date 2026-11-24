@@ -44,6 +44,135 @@ local surfaceGuiB = makeSurfaceGui("PortalGuiB", portalBPart)
 local portalA = PortalClass.new(surfaceGuiA)
 local portalB = PortalClass.new(surfaceGuiB)
 
+local SCENE_AMBIENT_ATTRIBUTE = "SceneAmbient"
+local SCENE_LIGHT_COLOR_ATTRIBUTE = "SceneLightColor"
+local SCENE_LIGHT_DIRECTION_ATTRIBUTE = "SceneLightDirection"
+
+local function getColorAttribute(instance, attributeName, fallback)
+	local value = instance:GetAttribute(attributeName)
+	if typeof(value) == "Color3" then
+		return value
+	end
+	return fallback
+end
+
+local function getDirectionAttribute(instance, attributeName, fallback)
+	local value = instance:GetAttribute(attributeName)
+	if typeof(value) == "Vector3" and value.Magnitude > 0.001 then
+		return value.Unit
+	end
+	return fallback
+end
+
+local function getWorldLightColor()
+	local colorShift = Lighting.ColorShift_Top
+	-- Black is Roblox's neutral/no-shift value, not a black sun.
+	if math.max(colorShift.R, colorShift.G, colorShift.B) <= (1 / 255) then
+		return Color3.new(1, 1, 1)
+	end
+	return colorShift
+end
+
+local function getAttributeSource(instance, attributeName, expectedType)
+	if typeof(instance:GetAttribute(attributeName)) == expectedType then
+		return "override"
+	end
+	return "world fallback"
+end
+
+local function getDirectionAttributeSource(instance, attributeName)
+	local value = instance:GetAttribute(attributeName)
+	if typeof(value) == "Vector3" and value.Magnitude > 0.001 then
+		return "override"
+	end
+	return "world fallback"
+end
+
+local function formatColor(color)
+	return ("[%d, %d, %d]"):format(
+		math.round(color.R * 255),
+		math.round(color.G * 255),
+		math.round(color.B * 255)
+	)
+end
+
+local function formatDirection(direction)
+	return ("[%.3f, %.3f, %.3f]"):format(direction.X, direction.Y, direction.Z)
+end
+
+local function remapSceneDirection(direction, sourcePortalObj, targetPortalObj)
+	local sourceSurfaceCF = select(1, sourcePortalObj:GetSurfaceInfo())
+	local targetSurfaceCF = select(1, targetPortalObj:GetSurfaceInfo())
+	local sourceLocalDirection = sourceSurfaceCF:VectorToObjectSpace(direction)
+	return (targetSurfaceCF * ROTATE):VectorToWorldSpace(sourceLocalDirection).Unit
+end
+
+local function applyPortalLighting(portalObj, portalPart, sourcePortalObj, targetPortalObj, audit)
+	local viewportFrame = portalObj.ViewportFrame
+	viewportFrame.Ambient = getColorAttribute(
+		portalPart,
+		SCENE_AMBIENT_ATTRIBUTE,
+		Lighting.OutdoorAmbient
+	)
+	viewportFrame.LightColor = getColorAttribute(
+		portalPart,
+		SCENE_LIGHT_COLOR_ATTRIBUTE,
+		getWorldLightColor()
+	)
+	local sceneLightDirection = getDirectionAttribute(
+		portalPart,
+		SCENE_LIGHT_DIRECTION_ATTRIBUTE,
+		Lighting:GetSunDirection()
+	)
+	viewportFrame.LightDirection = remapSceneDirection(
+		sceneLightDirection,
+		sourcePortalObj,
+		targetPortalObj
+	)
+
+	if audit then
+		print((
+			"[PortalLighting] %s | Ambient %s (%s) | LightColor %s (%s) | "
+				.. "LightDirection source %s (%s), rendered %s"
+		):format(
+			portalPart:GetFullName(),
+			formatColor(viewportFrame.Ambient),
+			getAttributeSource(portalPart, SCENE_AMBIENT_ATTRIBUTE, "Color3"),
+			formatColor(viewportFrame.LightColor),
+			getAttributeSource(portalPart, SCENE_LIGHT_COLOR_ATTRIBUTE, "Color3"),
+			formatDirection(sceneLightDirection),
+			getDirectionAttributeSource(portalPart, SCENE_LIGHT_DIRECTION_ATTRIBUTE),
+			formatDirection(viewportFrame.LightDirection)
+		))
+	end
+end
+
+local function refreshPortalLighting(audit)
+	-- Portal A displays scene geometry positioned relative to Portal B, and vice versa.
+	applyPortalLighting(portalA, portalAPart, portalB, portalA, audit)
+	applyPortalLighting(portalB, portalBPart, portalA, portalB, audit)
+end
+
+refreshPortalLighting(true)
+
+for _, portalPart in ipairs({ portalAPart, portalBPart }) do
+	portalPart:GetAttributeChangedSignal(SCENE_AMBIENT_ATTRIBUTE):Connect(function()
+		refreshPortalLighting(true)
+	end)
+	portalPart:GetAttributeChangedSignal(SCENE_LIGHT_COLOR_ATTRIBUTE):Connect(function()
+		refreshPortalLighting(true)
+	end)
+	portalPart:GetAttributeChangedSignal(SCENE_LIGHT_DIRECTION_ATTRIBUTE):Connect(function()
+		refreshPortalLighting(true)
+	end)
+end
+
+for _, propertyName in ipairs({ "OutdoorAmbient", "ColorShift_Top", "ClockTime", "GeographicLatitude" }) do
+	Lighting:GetPropertyChangedSignal(propertyName):Connect(function()
+		refreshPortalLighting(false)
+	end)
+end
+
 local function stripScripts(instance)
 	for _, d in ipairs(instance:GetDescendants()) do
 		if d:IsA("Script") or d:IsA("LocalScript") or d:IsA("ModuleScript") then

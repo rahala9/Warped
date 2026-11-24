@@ -6,6 +6,7 @@ local player = Players.LocalPlayer
 local Config = require(ReplicatedStorage:WaitForChild("AdminSystem"):WaitForChild("Config"))
 local Effects = require(ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("Effects"))
 local Items = require(ReplicatedStorage:WaitForChild("InventorySystem"):WaitForChild("Items"))
+local SkillCheckFunctions = require(ReplicatedStorage:WaitForChild("SharedFunctions"):WaitForChild("SkillCheckFunctions"))
 local SharedClientAssets = ReplicatedStorage:WaitForChild("SharedClientAssets")
 local Ships = SharedClientAssets:FindFirstChild("Ships") or Instance.new("Folder")
 local AdminRemote = ReplicatedStorage:WaitForChild("SharedRemotes"):WaitForChild("Admin")
@@ -100,6 +101,7 @@ local targetButton = button(main, "Target: " .. player.Name, UDim2.fromOffset(24
 local effectsTab = button(main, "Effects", UDim2.fromOffset(100, 34), UDim2.fromOffset(272, 48), COLORS.Accent)
 local itemsTab = button(main, "Items", UDim2.fromOffset(100, 34), UDim2.fromOffset(378, 48))
 local shipsTab = button(main, "Ships", UDim2.fromOffset(100, 34), UDim2.fromOffset(484, 48))
+local skillsTab = button(main, "Skills", UDim2.fromOffset(100, 34), UDim2.fromOffset(590, 48))
 
 local searchBox = Instance.new("TextBox")
 searchBox.Name = "Search"
@@ -167,6 +169,7 @@ status.TextColor3 = COLORS.Muted
 
 local activeTab = "Effects"
 local selectedTarget = player
+local skillValues = {}
 
 local function getPlayers()
 	local values = Players:GetPlayers()
@@ -188,6 +191,15 @@ local function send(action, name, amount)
 		Amount = amount,
 	})
 	status.Text = string.format("Sending %s for %s...", action, target.Name)
+	status.TextColor3 = COLORS.Muted
+end
+
+local function requestSkills()
+	local target = validateTarget()
+	AdminRemote:FireServer("GetSkills", {
+		TargetUserId = target.UserId,
+	})
+	status.Text = "Loading skills for " .. target.Name .. "..."
 	status.TextColor3 = COLORS.Muted
 end
 
@@ -220,11 +232,36 @@ local function addRow(name, description)
 	elseif activeTab == "Items" then
 		local give = button(row, "Give", UDim2.fromOffset(82, 30), UDim2.new(1, -90, 0, 8), COLORS.Good)
 		give.Activated:Connect(function() send("AddItem", name, tonumber(amountBox.Text) or 1) end)
-	else
+	elseif activeTab == "Ships" then
 		local revoke = button(row, "Revoke", UDim2.fromOffset(82, 30), UDim2.new(1, -178, 0, 8), COLORS.Bad)
 		local grant = button(row, "Grant", UDim2.fromOffset(82, 30), UDim2.new(1, -90, 0, 8), COLORS.Good)
 		grant.Activated:Connect(function() send("GrantShip", name) end)
 		revoke.Activated:Connect(function() send("RevokeShip", name) end)
+	elseif activeTab == "Skills" then
+		local valueBox = Instance.new("TextBox")
+		valueBox.Name = "SkillValue"
+		valueBox.BackgroundColor3 = COLORS.Surface
+		valueBox.BorderSizePixel = 0
+		valueBox.ClearTextOnFocus = false
+		valueBox.Font = Enum.Font.GothamSemibold
+		valueBox.Text = tostring(skillValues[name] or 0)
+		valueBox.TextColor3 = COLORS.Text
+		valueBox.TextSize = 14
+		valueBox.Size = UDim2.fromOffset(82, 30)
+		valueBox.Position = UDim2.new(1, -178, 0, 8)
+		valueBox.Parent = row
+		corner(valueBox, 5)
+
+		local set = button(row, "Set", UDim2.fromOffset(82, 30), UDim2.new(1, -90, 0, 8), COLORS.Good)
+		set.Activated:Connect(function()
+			local value = tonumber(valueBox.Text)
+			if value == nil then
+				status.Text = "Enter a numeric skill level."
+				status.TextColor3 = COLORS.Bad
+				return
+			end
+			send("SetSkill", name, value)
+		end)
 	end
 end
 
@@ -238,6 +275,28 @@ local function rebuild()
 				local haystack = ship.Name:lower()
 				if query == "" or haystack:find(query, 1, true) then
 					table.insert(entries, {Name = ship.Name, Description = "Persistent ship ownership"})
+				end
+			end
+		end
+	elseif activeTab == "Skills" then
+		for _, definition in pairs(SkillCheckFunctions.Skills) do
+			if typeof(definition) == "table" and typeof(definition.name) == "string" then
+				local haystack = string.format(
+					"%s %s %s %s",
+					definition.name,
+					tostring(definition.description or ""),
+					tostring(definition.baseSkillName or ""),
+					tostring(definition.primaryAttribute or "")
+				):lower()
+				if query == "" or haystack:find(query, 1, true) then
+					table.insert(entries, {
+						Name = definition.name,
+						Description = string.format(
+							"%s · %s",
+							definition.primaryAttribute or "No attribute",
+							definition.description or definition.baseSkillName or "Skill"
+						),
+					})
 				end
 			end
 		end
@@ -267,10 +326,14 @@ local function setTab(tab)
 	effectsTab.BackgroundColor3 = tab == "Effects" and COLORS.Accent or COLORS.Surface2
 	itemsTab.BackgroundColor3 = tab == "Items" and COLORS.Accent or COLORS.Surface2
 	shipsTab.BackgroundColor3 = tab == "Ships" and COLORS.Accent or COLORS.Surface2
+	skillsTab.BackgroundColor3 = tab == "Skills" and COLORS.Accent or COLORS.Surface2
 	amountBox.Visible = tab == "Items"
 	searchBox.PlaceholderText = tab == "Effects" and "Search effects..."
-		or tab == "Items" and "Search items..." or "Search ships..."
+		or tab == "Items" and "Search items..."
+		or tab == "Ships" and "Search ships..."
+		or "Search skills..."
 	rebuild()
+	if tab == "Skills" then requestSkills() end
 end
 
 targetButton.Activated:Connect(function()
@@ -278,26 +341,48 @@ targetButton.Activated:Connect(function()
 	local currentIndex = table.find(values, selectedTarget) or 0
 	selectedTarget = values[(currentIndex % #values) + 1]
 	validateTarget()
+	if activeTab == "Skills" then
+		skillValues = {}
+		rebuild()
+		requestSkills()
+	end
 end)
 effectsTab.Activated:Connect(function() setTab("Effects") end)
 itemsTab.Activated:Connect(function() setTab("Items") end)
 shipsTab.Activated:Connect(function() setTab("Ships") end)
+skillsTab.Activated:Connect(function() setTab("Skills") end)
 searchBox:GetPropertyChangedSignal("Text"):Connect(rebuild)
 closeButton.Activated:Connect(function() ModeManager:SetMode(ModeManager.Modes.Gameplay) end)
 Players.PlayerRemoving:Connect(function(leaving)
-	if selectedTarget == leaving then selectedTarget = player; validateTarget() end
+	if selectedTarget == leaving then
+		selectedTarget = player
+		validateTarget()
+		if activeTab == "Skills" then
+			skillValues = {}
+			rebuild()
+			requestSkills()
+		end
+	end
 end)
 
 AdminRemote.OnClientEvent:Connect(function(action, payload)
-	if action ~= "AdminResult" or typeof(payload) ~= "table" then return end
-	status.Text = payload.Message or (payload.Ok and "Done." or "Request failed.")
-	status.TextColor3 = payload.Ok and COLORS.Good or COLORS.Bad
+	if typeof(payload) ~= "table" then return end
+	if action == "AdminSkills" then
+		if selectedTarget and payload.TargetUserId == selectedTarget.UserId and typeof(payload.Skills) == "table" then
+			skillValues = payload.Skills
+			if activeTab == "Skills" then rebuild() end
+		end
+	elseif action == "AdminResult" then
+		status.Text = payload.Message or (payload.Ok and "Done." or "Request failed.")
+		status.TextColor3 = payload.Ok and COLORS.Good or COLORS.Bad
+	end
 end)
 
 ModeManager.ModeChanged:Connect(function(mode)
 	if mode == ModeManager.Modes.Admin then
 		validateTarget()
 		rebuild()
+		if activeTab == "Skills" then requestSkills() end
 	end
 end)
 

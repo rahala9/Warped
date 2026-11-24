@@ -31,11 +31,21 @@ local SHOP_ITEMS = {
 		{ id = 1, name = "InventoryImplant" },
 		{ id = 2, name = "FakeStarhopClearanceBadge" },
 	},
+
+	["PortalTravel"] = {
+		{ id = 1, name = "PortalTicket" },
+	},
 }
 
 local PURCHASE_REMOTE_NAME = "ShopPurchase"
 local ACCESS_REMOTE_NAME = "RequestShopAccess"
 local requestShopAccess = ReplicatedStorage:WaitForChild(ACCESS_REMOTE_NAME)
+
+local MODAL_SIDE_MARGIN = 16
+local MODAL_TOP_SAFE_AREA = 12
+local MODAL_BOTTOM_SAFE_AREA = 112
+local MODAL_CENTER_OFFSET = (MODAL_TOP_SAFE_AREA - MODAL_BOTTOM_SAFE_AREA) / 2
+local SHOP_MAX_SIZE = Vector2.new(700, 540)
 
 -- ============================================================
 -- STATE
@@ -135,12 +145,22 @@ local function buildGui(shopName)
 
 	mainFrame = Instance.new("Frame")
 	mainFrame.Name = "MainFrame"
-	mainFrame.Size = UDim2.new(0, 700, 0, 540)
-	mainFrame.Position = UDim2.new(0.5, -350, 0, 0)
+	mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+	mainFrame.Size = UDim2.new(
+		1,
+		-MODAL_SIDE_MARGIN * 2,
+		1,
+		-(MODAL_TOP_SAFE_AREA + MODAL_BOTTOM_SAFE_AREA)
+	)
+	mainFrame.Position = UDim2.new(0.5, 0, 0.5, MODAL_CENTER_OFFSET)
 	mainFrame.BackgroundColor3 = Color3.fromRGB(8, 12, 22)
 	mainFrame.BorderSizePixel = 0
 	mainFrame.ClipsDescendants = true
 	mainFrame.Parent = shopGui
+
+	local sizeConstraint = Instance.new("UISizeConstraint")
+	sizeConstraint.MaxSize = SHOP_MAX_SIZE
+	sizeConstraint.Parent = mainFrame
 
 	local topBar = Instance.new("Frame")
 	topBar.Size = UDim2.new(1, 0, 0, 3)
@@ -173,7 +193,7 @@ local function buildGui(shopName)
 
 	local scrollFrame = Instance.new("ScrollingFrame")
 	scrollFrame.Name = "GridScroll"
-	scrollFrame.Size = UDim2.new(1, -32, 0, 368)
+	scrollFrame.Size = UDim2.new(1, -32, 1, -172)
 	scrollFrame.Position = UDim2.new(0, 16, 0, 58)
 	scrollFrame.BackgroundTransparency = 1
 	scrollFrame.BorderSizePixel = 0
@@ -415,12 +435,12 @@ function openShop(shopName)
 
 	shopGui.Enabled = true
 
-	mainFrame.Position = UDim2.new(0.5, -350, 0.6, -270)
+	mainFrame.Position = UDim2.new(0.5, 0, 0.5, MODAL_CENTER_OFFSET + 40)
 	mainFrame.BackgroundTransparency = 1
 
 	local tweenInfo = TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 	local tween = TweenService:Create(mainFrame, tweenInfo, {
-		Position = UDim2.new(0.5, -350, 0, 0),
+		Position = UDim2.new(0.5, 0, 0.5, MODAL_CENTER_OFFSET),
 		BackgroundTransparency = 0,
 	})
 
@@ -432,7 +452,7 @@ function closeShop()
 
 	local tweenInfo = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
 	local tween = TweenService:Create(mainFrame, tweenInfo, {
-		Position = UDim2.new(0.5, -350, 0.6, -270),
+		Position = UDim2.new(0.5, 0, 0.5, MODAL_CENTER_OFFSET + 40),
 		BackgroundTransparency = 1,
 	})
 

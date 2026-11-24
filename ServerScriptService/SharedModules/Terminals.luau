@@ -1,5 +1,94 @@
 local TerminalConfigurations = {}
 
+TerminalConfigurations.HackingMessages = {
+	[0] = {
+		"Pressing buttons with confidence...",
+		"Trying PASSWORD123...",
+		"Asking the terminal nicely...",
+		"Checking underneath the keyboard...",
+		"Looking for the ANY key...",
+		"Turning Caps Lock off... just in case...",
+		"Guessing admin / admin...",
+		"Jiggling a suspicious cable...",
+		"Blaming the network...",
+		"Clicking ACCEPT without reading...",
+		"Searching memory for that one tutorial...",
+		"Pretending that beep was good...",
+		"Typing faster to look qualified...",
+		"Checking whether it is plugged in...",
+		"Running totally_safe_hack.exe...",
+		"Closing seventeen unexpected popups...",
+		"Trying the password backwards...",
+		"Wiping fingerprints off the screen...",
+		"Waiting to see if it fixes itself...",
+		"That warning light was probably already on...",
+		"Pounding keys randomly...",
+		"Becoming one with the terminal...",
+		"Tapping the non-touch screen wildly...",
+		"Cursing at the terminal...",
+	},
+	[1] = {
+		"Opening beginner intrusion guide...",
+		"Scanning for the obvious port...",
+		"Running a copied bypass script...",
+		"Trying the default credentials...",
+		"Reading the error message this time...",
+		"Searching for an unsecured service...",
+		"Patching together a basic exploit...",
+		"Checking the tutorial comments...",
+		"Attempting a standard authentication bypass...",
+		"Please don't trigger the alarm...",
+	},
+	[2] = {
+		"Enumerating access services...",
+		"Testing credential hashes...",
+		"Spoofing terminal authorization...",
+		"Probing security boundaries...",
+		"Mapping active network ports...",
+		"Injecting a controlled payload...",
+		"Analyzing authentication traffic...",
+		"Bypassing the user-access layer...",
+		"Suppressing basic security alerts...",
+		"Cleaning up obvious traces...",
+	},
+	[3] = {
+		"Mapping security architecture...",
+		"Cracking the access cipher...",
+		"Escalating privileges...",
+		"Redirecting audit logs...",
+		"Isolating the security daemon...",
+		"Spoofing trusted system traffic...",
+		"Building a temporary access tunnel...",
+		"Intercepting countermeasure calls...",
+		"Rewriting authorization tokens...",
+		"Closing the intrusion route...",
+	},
+	[4] = {
+		"Predicting countermeasure cycles...",
+		"Ghosting intrusion telemetry...",
+		"Subverting the security kernel...",
+		"Mirroring trusted credentials...",
+		"Neutralizing active trace routines...",
+		"Reconstructing the encryption state...",
+		"Spoofing hardware-level authority...",
+		"Redirecting defensive processes...",
+		"Editing the live security model...",
+		"Sealing the breach behind me...",
+	},
+	[5] = {
+		"Countermeasures anticipated.",
+		"Root authority assumed.",
+		"Security telemetry rewritten.",
+		"Encryption model solved.",
+		"Trace routines neutralized.",
+		"System trust acquired.",
+		"Defenses redirected.",
+		"Access is inevitable.",
+		"The terminal never saw me.",
+		"No trace remains.",
+	},
+}
+
 local function laserDoorTerminal(targetPath)
 	local doorAction = {
 		action = "ToggleLaserDoor",
@@ -28,6 +117,7 @@ end
 
 -- Define terminal types and their behaviors
 TerminalConfigurations.Terminals = {
+	["LaserDoorTerminal"] = laserDoorTerminal(nil),
 	
 	["MOP-E7_1Terminal"] = {
 		terminalType = "RobotControl",

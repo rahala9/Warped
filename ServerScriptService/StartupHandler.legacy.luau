@@ -387,9 +387,8 @@ ProfileLoadedEvent.Event:Connect(function(player)
 	--TODO remove
 	InventoryFunctions.AddItem(player,"PowerCell",5)
 	InventoryFunctions.AddItem(player,"Dart",20)
-	InventoryFunctions.AddItem(player,"Laser",100)
 	--InventoryFunctions.AddItem(player,"Firework",1)
-	InventoryFunctions.AddItem(player,"PizzaSlice",1)
+	InventoryFunctions.AddItem(player,"PortalTicket",1)
 	
 	--QuestFunctions.RestartQuest(player,Quests.SteakOut)
 	

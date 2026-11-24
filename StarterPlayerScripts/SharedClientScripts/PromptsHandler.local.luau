@@ -16,6 +16,7 @@ local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 local SharedGui = PlayerGui:WaitForChild("SharedGUI")
 local ActionGui = SharedGui:WaitForChild("ActionGui")
+local ActionFrame = ActionGui:WaitForChild("ActionFrame")
 local ActionMessagesFrame = ActionGui:WaitForChild("ActionMessagesFrame")
 local ActionMessage = ActionMessagesFrame:WaitForChild("ActionMessage")
 local ActionMessageTimer = ActionMessagesFrame:WaitForChild("ActionMessageTimer")
@@ -69,6 +70,163 @@ local function addStroke(parent, color, thickness, transparency)
 	s.Parent = parent
 	return s
 end
+
+local function getOrCreate(className, name, parent)
+	local existing = parent:FindFirstChild(name)
+	if existing and existing:IsA(className) then
+		return existing
+	end
+	if existing then existing:Destroy() end
+
+	local instance = Instance.new(className)
+	instance.Name = name
+	instance.Parent = parent
+	return instance
+end
+
+local function styleActionMessages()
+	ActionMessagesFrame.AnchorPoint = Vector2.new(0.5, 1)
+	ActionMessagesFrame.Size = UDim2.new(1, -32, 0, 68)
+	ActionMessagesFrame.BackgroundColor3 = HUD_STYLE.PanelBg
+	ActionMessagesFrame.BackgroundTransparency = 0.08
+	ActionMessagesFrame.BorderSizePixel = 0
+	ActionMessagesFrame.ClipsDescendants = true
+	ActionMessagesFrame.ZIndex = 20
+
+	local sizeConstraint = getOrCreate("UISizeConstraint", "ResponsiveSize", ActionMessagesFrame)
+	sizeConstraint.MaxSize = Vector2.new(360, 68)
+
+	local corner = getOrCreate("UICorner", "PanelCorner", ActionMessagesFrame)
+	corner.CornerRadius = UDim.new(0, 8)
+
+	local stroke = getOrCreate("UIStroke", "PanelStroke", ActionMessagesFrame)
+	stroke.Color = HUD_STYLE.CyanDim
+	stroke.Thickness = 1
+	stroke.Transparency = 0.2
+	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+
+	local accent = getOrCreate("Frame", "AccentLine", ActionMessagesFrame)
+	accent.Size = UDim2.new(1, 0, 0, 2)
+	accent.BackgroundColor3 = HUD_STYLE.Cyan
+	accent.BorderSizePixel = 0
+	accent.ZIndex = 21
+
+	local timerBacking = getOrCreate("Frame", "TimerBacking", ActionMessagesFrame)
+	timerBacking.AnchorPoint = Vector2.new(1, 0.5)
+	timerBacking.Position = UDim2.new(1, -10, 0.5, -2)
+	timerBacking.Size = UDim2.fromOffset(42, 34)
+	timerBacking.BackgroundColor3 = HUD_STYLE.TrackBg
+	timerBacking.BorderSizePixel = 0
+	timerBacking.ZIndex = 21
+	local timerCorner = getOrCreate("UICorner", "Corner", timerBacking)
+	timerCorner.CornerRadius = UDim.new(0, 6)
+	local timerStroke = getOrCreate("UIStroke", "Stroke", timerBacking)
+	timerStroke.Color = HUD_STYLE.CyanDim
+	timerStroke.Thickness = 1
+	timerStroke.Transparency = 0.3
+
+	ActionMessage.BackgroundTransparency = 1
+	ActionMessage.AnchorPoint = Vector2.zero
+	ActionMessage.Position = UDim2.fromOffset(14, 8)
+	ActionMessage.Size = UDim2.new(1, -76, 1, -22)
+	ActionMessage.Font = Enum.Font.GothamMedium
+	ActionMessage.TextColor3 = HUD_STYLE.Text
+	ActionMessage.TextSize = 15
+	ActionMessage.TextScaled = false
+	ActionMessage.TextTransparency = 0
+	ActionMessage.TextStrokeTransparency = 1
+	ActionMessage.TextWrapped = true
+	ActionMessage.TextXAlignment = Enum.TextXAlignment.Left
+	ActionMessage.TextYAlignment = Enum.TextYAlignment.Center
+	ActionMessage.ZIndex = 22
+	local messagePadding = getOrCreate("UIPadding", "TextPadding", ActionMessage)
+	messagePadding.PaddingLeft = UDim.new(0, 10)
+	messagePadding.PaddingRight = UDim.new(0, 6)
+
+	ActionMessageTimer.BackgroundTransparency = 1
+	ActionMessageTimer.AnchorPoint = Vector2.new(0.5, 0.5)
+	ActionMessageTimer.Position = UDim2.new(1, -31, 0.5, -2)
+	ActionMessageTimer.Size = UDim2.fromOffset(36, 30)
+	ActionMessageTimer.Font = Enum.Font.GothamBold
+	ActionMessageTimer.TextColor3 = HUD_STYLE.Cyan
+	ActionMessageTimer.TextSize = 16
+	ActionMessageTimer.TextScaled = false
+	ActionMessageTimer.TextTransparency = 0
+	ActionMessageTimer.TextStrokeTransparency = 1
+	ActionMessageTimer.TextXAlignment = Enum.TextXAlignment.Center
+	ActionMessageTimer.TextYAlignment = Enum.TextYAlignment.Center
+	ActionMessageTimer.ZIndex = 22
+
+	local progressTrack = getOrCreate("Frame", "ProgressTrack", ActionMessagesFrame)
+	progressTrack.Position = UDim2.new(0, 10, 1, -8)
+	progressTrack.Size = UDim2.new(1, -20, 0, 3)
+	progressTrack.BackgroundColor3 = HUD_STYLE.TrackBg
+	progressTrack.BorderSizePixel = 0
+	progressTrack.ZIndex = 21
+	local trackCorner = getOrCreate("UICorner", "Corner", progressTrack)
+	trackCorner.CornerRadius = UDim.new(1, 0)
+
+	local progressFill = getOrCreate("Frame", "Fill", progressTrack)
+	progressFill.Size = UDim2.fromScale(1, 1)
+	progressFill.BackgroundColor3 = HUD_STYLE.Cyan
+	progressFill.BorderSizePixel = 0
+	progressFill.ZIndex = 22
+	local fillCorner = getOrCreate("UICorner", "Corner", progressFill)
+	fillCorner.CornerRadius = UDim.new(1, 0)
+
+	local lastPromptCenterX
+	local lastPromptTop
+	local function updatePosition()
+		local minimumX
+		local maximumX
+		local minimumY
+		for _, child in ipairs(ActionFrame:GetChildren()) do
+			if child:IsA("GuiObject")
+				and child.Name == "Prompt"
+				and child.Visible
+				and child.AbsoluteSize.X > 0
+				and child.AbsoluteSize.Y > 0
+			then
+				local position = child.AbsolutePosition
+				local size = child.AbsoluteSize
+				minimumX = minimumX and math.min(minimumX, position.X) or position.X
+				maximumX = maximumX and math.max(maximumX, position.X + size.X) or position.X + size.X
+				minimumY = minimumY and math.min(minimumY, position.Y) or position.Y
+			end
+		end
+
+		if minimumX and maximumX and minimumY then
+			lastPromptCenterX = (minimumX + maximumX) * 0.5
+			lastPromptTop = minimumY
+		end
+
+		if lastPromptCenterX and lastPromptTop then
+			ActionMessagesFrame.Position = UDim2.fromOffset(lastPromptCenterX, lastPromptTop - 8)
+			return
+		end
+
+		local actionPosition = ActionFrame.AbsolutePosition
+		local actionSize = ActionFrame.AbsoluteSize
+		ActionMessagesFrame.Position = UDim2.fromOffset(
+			actionPosition.X + actionSize.X * 0.5,
+			actionPosition.Y - 8
+		)
+	end
+
+	ActionFrame:GetPropertyChangedSignal("AbsolutePosition"):Connect(updatePosition)
+	ActionFrame:GetPropertyChangedSignal("AbsoluteSize"):Connect(updatePosition)
+	ActionFrame.ChildAdded:Connect(function()
+		task.defer(updatePosition)
+	end)
+	ActionFrame.ChildRemoved:Connect(function()
+		task.defer(updatePosition)
+	end)
+	task.defer(updatePosition)
+
+	return progressTrack, progressFill, timerBacking, updatePosition
+end
+
+local ActionProgressTrack, ActionProgressFill, ActionTimerBacking, UpdateActionMessagePosition = styleActionMessages()
 
 -- ============================================================
 -- CONFIG
@@ -709,6 +867,13 @@ local activeSeq = 0
 DisplayActionMessageEvent.OnClientEvent:Connect(function(messages, messageDelay, timer, opts)
 	activeSeq += 1
 	local seq = activeSeq
+	local hasTimer = typeof(timer) == "number" and timer > 0
+	ActionProgressTrack.Visible = hasTimer
+	ActionTimerBacking.Visible = hasTimer
+	ActionMessageTimer.Visible = hasTimer
+	ActionMessage.Size = UDim2.new(1, hasTimer and -76 or -28, 1, -22)
+	ActionProgressFill.Size = UDim2.fromScale(1, 1)
+	UpdateActionMessagePosition()
 
 	local function isCancelled()
 		return seq ~= activeSeq
@@ -728,7 +893,7 @@ DisplayActionMessageEvent.OnClientEvent:Connect(function(messages, messageDelay,
 		return true
 	end
 
-	if not timer then
+	if not hasTimer then
 		if not setUI(messages[messageNumber], "") then
 			return
 		end
@@ -753,7 +918,9 @@ DisplayActionMessageEvent.OnClientEvent:Connect(function(messages, messageDelay,
 			return
 		end
 
-		local remaining = math.max(0, math.ceil(endAt - os.clock()))
+		local remainingSeconds = math.max(0, endAt - os.clock())
+		local remaining = math.ceil(remainingSeconds)
+		ActionProgressFill.Size = UDim2.fromScale(math.clamp(remainingSeconds / timer, 0, 1), 1)
 
 		if not setUI(messages[messageNumber], tostring(remaining)) then
 			return

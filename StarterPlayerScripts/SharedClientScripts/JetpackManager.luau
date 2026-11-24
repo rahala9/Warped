@@ -391,6 +391,7 @@ function JetpackManager.Update(dt)
 	-- Determine if jetpack can fire
 	local canJet = hasLeftGround and spaceWasReleased and spaceDown
 		and not PlayerState.InWater and not jetpackFuelDepleted
+		and char:GetAttribute("Resting") ~= true
 
 	isJetpacking = canJet
 

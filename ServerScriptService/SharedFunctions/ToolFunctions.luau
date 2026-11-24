@@ -286,6 +286,7 @@ function functions.AddLiveObjectToRightHand(player, itemName, itemModel)
 
 	itemModel:SetAttribute("HeldBy", player.Name)
 	itemModel:SetAttribute("DroppedBy", nil)
+	player.Character:SetAttribute("HoldingLiveObject", true)
 
 	-- Make the held NPC not fight movement
 	local heldHum = itemModel:FindFirstChildOfClass("Humanoid")
@@ -336,8 +337,12 @@ function functions.RemoveLiveObjectFromRightHand(player, itemName, itemModel)
 	end
 
 	-- Restore attributes
+	local wasHeldByPlayer = itemModel:GetAttribute("HeldBy") == player.Name
 	itemModel:SetAttribute("HeldBy", nil)
 	itemModel:SetAttribute("DroppedBy", player.Name)
+	if wasHeldByPlayer then
+		player.Character:SetAttribute("HoldingLiveObject", nil)
+	end
 
 	-- Restore humanoid behavior
 	local heldHum = itemModel:FindFirstChildOfClass("Humanoid")

@@ -20,7 +20,6 @@ local EquipItemEvent = Remotes:WaitForChild("EquipItem")
 local ToolActionEvent = Remotes:WaitForChild("ToolAction") --Runs after tool animation is done or action event in animation is done
 local HoldToolEvent = Remotes:WaitForChild("HoldTool")
 local PlayEmoteEvent = Remotes:WaitForChild("LocalPlayEmote")
-local SitEvent = Remotes:WaitForChild("Sit")
 local LedgeEvent = Remotes:WaitForChild("Ledge")
 local PlayerStateChangeEvent = Remotes:WaitForChild("PlayerStateChange")
 local SwimmingEvent = Remotes:WaitForChild("Swimming")
@@ -612,6 +611,11 @@ function CheckEnteringWater()
 end
 
 RunService.RenderStepped:Connect(function()
+	-- RestSystem owns the full-body pose until the server clears this attribute.
+	-- Leaving the locomotion state unchanged lets it resume naturally on exit.
+	if char and char:GetAttribute("Resting") == true then
+		return
+	end
 
 	if (PlayerState.CurrentState == PlayerState.States.Idle) then
 		CheckWalking()
@@ -980,12 +984,6 @@ CurrentHeldToolChangedEvent.OnClientEvent:Connect(function(toolName,slot)
 	end
 	if (PlayerState.ToolStates[toolName] == nil) then return end
 	PlayerState.ChangeToolState(PlayerState.ToolStates[toolName],toolName)
-end)
-
-SitEvent.Event:Connect(function(SitState)
-	if (PlayerState.States[SitState]) then
-		PlayerState.ChangeState(PlayerState.States[SitState])
-	end
 end)
 
 PlayerStateChangeEvent.OnClientEvent:Connect(function(NewState,attack,deferAttack,keyCode,hitPosition,amount,arg1,arg2,arg3,arg4)

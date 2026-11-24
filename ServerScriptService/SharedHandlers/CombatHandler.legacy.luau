@@ -1199,6 +1199,9 @@ end
 local playerLastAttack = {} -- [userId] = os.time()
 
 ReplicatedStorage:WaitForChild("SharedRemotes"):WaitForChild("PlayerInput").OnServerEvent:Connect(function(player, keycode, mouseHit, ToolTransformedWorldCFrame)
+	if player:GetAttribute("Resting") == true then
+		return
+	end
 	local heldToolName = StatesFunctions.GetCurrentTool(player)
 	if heldToolName == "" then
 		return
